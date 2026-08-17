@@ -15,7 +15,7 @@ from app.models.user import User
 
 # Use an in-memory SQLite database for testing, or just use the current DB.
 # For simplicity, let's keep it connected to the current DB but maybe we shouldn't wipe it?
-# The Flask version used db.create_all() which requires connecting to the test DB.
+# Uses FastAPI TestClient against the current dev database.
 # Let's just test against the current dev database like the old script did.
 
 client = TestClient(app)

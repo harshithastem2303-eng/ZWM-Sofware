@@ -5,7 +5,11 @@ from sqlalchemy.orm import Session
 
 from app.database import get_db
 from app.models.user import User
-from app.schemas.schemas import UserRegister, UserLogin, ForgotPassword, TokenResponse, TokenRefreshResponse, MessageResponse
+from app.schemas.schemas import (
+    UserRegister, UserLogin, ForgotPassword,
+    TokenResponse, TokenRefreshResponse, MessageResponse,
+    VerifyEmailRequest, ResetPasswordRequest,
+)
 from app.dependencies.auth import create_access_token, create_refresh_token, get_current_user
 
 router = APIRouter()
@@ -22,7 +26,7 @@ def register(user_in: UserRegister, db: Session = Depends(get_db)):
         raise HTTPException(status_code=409, detail="User already exists")
 
     hashed_password = get_password_hash(user_in.password)
-    verification_token = str(uuid.uuid4())
+    verification_token = f"verify:{uuid.uuid4()}"
 
     new_user = User(
         email=user_in.email,
@@ -38,6 +42,23 @@ def register(user_in: UserRegister, db: Session = Depends(get_db)):
     print(f"Mock sending email to {new_user.email} with token: {verification_token}")
 
     return {"message": "User registered successfully", "user_id": new_user.user_id}
+
+@router.post("/verify-email", response_model=MessageResponse)
+def verify_email(body: VerifyEmailRequest, db: Session = Depends(get_db)):
+    token = body.token
+    user = db.query(User).filter(
+        User.verification_token == token,
+        User.is_email_verified == False,
+    ).first()
+
+    if not user:
+        raise HTTPException(status_code=400, detail="Invalid or expired verification token")
+
+    user.is_email_verified = True
+    user.verification_token = None
+    db.commit()
+
+    return {"message": "Email verified successfully"}
 
 @router.post("/login", response_model=TokenResponse)
 def login(user_in: UserLogin, db: Session = Depends(get_db)):
@@ -58,9 +79,6 @@ def login(user_in: UserLogin, db: Session = Depends(get_db)):
 
 @router.post("/refresh", response_model=TokenRefreshResponse)
 def refresh(current_user: User = Depends(get_current_user)):
-    # Note: normally you'd validate the refresh token explicitly, 
-    # but based on the original code logic, we just generate a new access token.
-    # To properly implement refresh, you should decode the refresh token specifically.
     new_access_token = create_access_token(identity=current_user.user_id, role=current_user.role)
     return {"access_token": new_access_token}
 
@@ -72,7 +90,25 @@ def logout(current_user: User = Depends(get_current_user)):
 def forgot_password(forgot_in: ForgotPassword, db: Session = Depends(get_db)):
     user = db.query(User).filter(User.email == forgot_in.email).first()
     if user:
-        reset_token = str(uuid.uuid4())
+        reset_token = f"reset:{uuid.uuid4()}"
+        user.verification_token = reset_token
+        db.commit()
         print(f"Mock sending reset email to {user.email} with token: {reset_token}")
-        
+
     return {"message": "If the email is registered, a password reset link has been sent"}
+
+@router.post("/reset-password", response_model=MessageResponse)
+def reset_password(body: ResetPasswordRequest, db: Session = Depends(get_db)):
+    token = body.token
+    if not token.startswith("reset:"):
+        raise HTTPException(status_code=400, detail="Invalid reset token")
+
+    user = db.query(User).filter(User.verification_token == token).first()
+    if not user:
+        raise HTTPException(status_code=400, detail="Invalid or expired reset token")
+
+    user.password_hash = get_password_hash(body.new_password)
+    user.verification_token = None
+    db.commit()
+
+    return {"message": "Password reset successfully"}

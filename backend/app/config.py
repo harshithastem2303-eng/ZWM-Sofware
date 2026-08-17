@@ -17,6 +17,7 @@ class Settings(BaseSettings):
     AWS_REGION: str = "us-east-1"
     
     CATEGORY_VALIDATED_THRESHOLD: int = 100
+    YOLO_MODEL_PATH: str = os.path.join(os.path.abspath(os.path.dirname(os.path.dirname(__file__))), "models", "best.pt")
 
     class Config:
         env_file = ".env"

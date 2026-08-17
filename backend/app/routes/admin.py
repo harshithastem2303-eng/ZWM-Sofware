@@ -85,3 +85,47 @@ def approve_image(image_id: str, request_in: ImageApproveRequest, admin: User = 
 
     db.commit()
     return {"message": f"Image {action}d successfully"}
+
+
+# ---- Analytics ----
+
+@router.get("/analytics/overview", response_model=dict)
+def analytics_overview(admin: User = Depends(require_admin), db: Session = Depends(get_db)):
+    from app.models.annotation import Annotation
+    from app.models.training import TrainingJob
+
+    total_users = db.query(User).count()
+    total_images = db.query(Image).count()
+    validated_images = db.query(Image).filter(Image.is_validated == True, Image.status == "approved").count()
+    pending_images = db.query(Image).filter(Image.status == "uploaded", Image.is_validated == False).count()
+    rejected_images = db.query(Image).filter(Image.status == "rejected").count()
+    total_annotations = db.query(Annotation).count()
+    total_categories = db.query(Category).count()
+    total_training_jobs = db.query(TrainingJob).count()
+
+    return {
+        "total_users": total_users,
+        "total_images": total_images,
+        "validated_images": validated_images,
+        "pending_images": pending_images,
+        "rejected_images": rejected_images,
+        "total_annotations": total_annotations,
+        "total_categories": total_categories,
+        "total_training_jobs": total_training_jobs,
+    }
+
+
+@router.get("/analytics/leaderboard", response_model=dict)
+def analytics_leaderboard(admin: User = Depends(require_admin), db: Session = Depends(get_db)):
+    users = db.query(User).order_by(User.reward_points.desc()).limit(10).all()
+    results = [
+        {
+            "user_id": u.user_id,
+            "email": u.email,
+            "full_name": u.full_name,
+            "reward_points": u.reward_points or 0,
+            "image_count": u.image_count or 0,
+        }
+        for u in users
+    ]
+    return {"leaderboard": results}
