@@ -10,12 +10,20 @@ class User(Base):
     __tablename__ = "users"
 
     user_id = Column(String(36), primary_key=True, default=lambda: str(uuid.uuid4()))
-    email = Column(String(30), unique=True, nullable=False)
+    # Widened from String(30) → String(255) to support all valid email lengths
+    email = Column(String(255), unique=True, nullable=False)
     password_hash = Column(Text, nullable=False)
     full_name = Column(String(150), nullable=True)
     role = Column(String(20), default="user")
     is_email_verified = Column(Boolean, default=False)
+
+    # Email verification token (set on registration, cleared after use)
     verification_token = Column(Text, nullable=True)
+
+    # Password reset — stored in a dedicated field separate from verification
+    password_reset_token = Column(Text, nullable=True)
+    reset_token_expiry = Column(DateTime(timezone=True), nullable=True)
+
     reward_points = Column(Integer, default=0)
     image_count = Column(Integer, default=0)
     created_at = Column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc))
@@ -34,7 +42,7 @@ class Admin(Base):
 
     admin_id = Column(String(36), primary_key=True, default=lambda: str(uuid.uuid4()))
     admin_name = Column(String(150), nullable=False)
-    admin_email = Column(String(30), unique=True, nullable=False)
+    admin_email = Column(String(255), unique=True, nullable=False)
     is_email_verified = Column(Boolean, default=False)
     hash_password = Column(Text, nullable=False)
     created_at = Column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc))

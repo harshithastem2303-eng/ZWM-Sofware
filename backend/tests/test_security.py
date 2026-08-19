@@ -27,14 +27,42 @@ class TestMissingAuth:
     def test_ml_jobs_no_token(self, client):
         assert client.get("/api/ml/jobs").status_code == 401
 
+    def test_refresh_no_token(self, client):
+        assert client.post("/api/auth/refresh").status_code == 401
+
+    def test_logout_no_token(self, client):
+        assert client.post("/api/auth/logout").status_code == 401
+
 
 class TestInvalidToken:
     def test_bad_token(self, client):
         headers = {"Authorization": "Bearer invalid-garbage-token"}
         assert client.get("/api/user/profile", headers=headers).status_code == 401
 
-    def test_refresh_token_as_access(self, client, user_auth):
+    def test_refresh_token_used_on_protected_endpoint(self, client, user_auth):
+        """A refresh token must be rejected by access-token-protected endpoints."""
         headers = {"Authorization": f"Bearer {user_auth['refresh_token']}"}
+        assert client.get("/api/user/profile", headers=headers).status_code == 401
+
+    def test_access_token_rejected_by_refresh_endpoint(self, client, user_auth):
+        """The /refresh endpoint must reject an access token."""
+        headers = {"Authorization": f"Bearer {user_auth['access_token']}"}
+        r = client.post("/api/auth/refresh", headers=headers)
+        assert r.status_code == 401
+
+    def test_revoked_token_rejected(self, client, user_auth):
+        """After logout, the revoked token must be rejected."""
+        # Get a fresh token
+        r = client.post("/api/auth/login", json={
+            "email": user_auth["email"], "password": user_auth["password"]
+        })
+        fresh_token = r.json()["access_token"]
+        headers = {"Authorization": f"Bearer {fresh_token}"}
+
+        # Logout (revoke)
+        client.post("/api/auth/logout", headers=headers)
+
+        # Revoked token must be rejected
         assert client.get("/api/user/profile", headers=headers).status_code == 401
 
 
@@ -57,6 +85,12 @@ class TestRBAC:
     def test_user_cannot_view_dataset(self, client, user_auth):
         assert client.get("/api/dataset/stats", headers=user_auth["headers"]).status_code == 403
 
+    def test_user_cannot_list_ml_jobs(self, client, user_auth):
+        assert client.get("/api/ml/jobs", headers=user_auth["headers"]).status_code == 403
+
+    def test_user_cannot_list_models(self, client, user_auth):
+        assert client.get("/api/ml/models", headers=user_auth["headers"]).status_code == 403
+
 
 class TestBadRequests:
     def test_register_empty_body(self, client):
@@ -72,6 +106,13 @@ class TestBadRequests:
     def test_category_missing_fields(self, client, admin_auth):
         r = client.post("/api/admin/categories", json={}, headers=admin_auth["headers"])
         assert r.status_code == 422
+
+    def test_reset_password_bad_prefix(self, client):
+        """Token with wrong prefix must be rejected immediately."""
+        r = client.post("/api/auth/reset-password", json={
+            "token": "verify:wrongprefix", "new_password": "Newpass!"
+        })
+        assert r.status_code == 400
 
 
 class TestNotFound:
