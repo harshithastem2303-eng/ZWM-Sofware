@@ -14,6 +14,7 @@ from datetime import datetime, timedelta, timezone
 
 import bcrypt
 from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi.security import OAuth2PasswordRequestForm
 from sqlalchemy.orm import Session
 
 from app.database import get_db
@@ -144,6 +145,43 @@ def login(user_in: UserLogin, db: Session = Depends(get_db)):
         "user_id": user.user_id,
         "role": user.role,
     }
+
+
+@router.post("/token")
+def token_login(
+    form_data: OAuth2PasswordRequestForm = Depends(),
+    db: Session = Depends(get_db),
+):
+    """
+    OAuth2-compatible login (form data) — used by Swagger's Authorize dialog.
+
+    In Swagger UI:
+      1. Click the **Authorize** button (padlock icon, top-right).
+      2. Enter your **email** as Username and your **password** as Password.
+      3. Click **Authorize** → **Close**.
+      4. All endpoints now work automatically (Profile, Stats, Logout, Admin, etc.).
+
+    This endpoint accepts `username` + `password` as form fields (OAuth2 standard).
+    The `username` field is your email address.
+    For programmatic JSON login, use POST /api/auth/login instead.
+    """
+    # OAuth2 form sends 'username' — we treat it as email
+    user = db.query(User).filter(User.email == form_data.username).first()
+    if not user or not verify_password(form_data.password, user.password_hash):
+        raise HTTPException(status_code=401, detail="Invalid credentials")
+
+    access_token = create_access_token(identity=user.user_id, role=user.role)
+    refresh_token = create_refresh_token(identity=user.user_id)
+
+    # OAuth2 token response format — Swagger requires 'access_token' + 'token_type'
+    return {
+        "access_token": access_token,
+        "refresh_token": refresh_token,
+        "token_type": "bearer",
+        "user_id": user.user_id,
+        "role": user.role,
+    }
+
 
 
 @router.post("/refresh", response_model=TokenRefreshResponse)
