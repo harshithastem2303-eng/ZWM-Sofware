@@ -16,3 +16,4 @@ ultralytics
 boto3
 pytest
 httpx
+apscheduler

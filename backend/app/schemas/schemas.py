@@ -3,9 +3,12 @@ Pydantic schemas for request/response validation.
 
 Uses Pydantic v2 ConfigDict instead of deprecated class-based Config.
 """
-from pydantic import BaseModel, EmailStr, ConfigDict
-from typing import Optional
+from pydantic import BaseModel, EmailStr, ConfigDict, field_validator
+from typing import Optional, Any
 from datetime import datetime
+
+# Supported annotation shape types
+ANNOTATION_TYPES = {"rectangle", "polygon", "circle", "freehand"}
 
 # ---------------------------------------------------------------------------
 # Auth & User Schemas
@@ -102,12 +105,18 @@ class ImageResponse(BaseModel):
     image_id: str
     user_id: str
     original_filename: str
+    storage_type: Optional[str] = "local"
     status: Optional[str] = None
     is_validated: bool
     reward_given: bool
     credits_awarded: Optional[int] = 0
     uploaded_at: Optional[datetime] = None
     validated_at: Optional[datetime] = None
+    temporary_expires_at: Optional[datetime] = None
+    annotated_at: Optional[datetime] = None
+    converted_at: Optional[datetime] = None
+    permanent_at: Optional[datetime] = None
+    yolo_txt_path: Optional[str] = None
 
 
 class ImageUploadResponse(BaseModel):
@@ -122,14 +131,62 @@ class ImageUploadResponse(BaseModel):
 # ---------------------------------------------------------------------------
 
 class AnnotationCreate(BaseModel):
+    """
+    Create a new annotation on an uploaded image.
+
+    - annotation_type: rectangle | polygon | circle | freehand
+    - label_data:      shape coordinates — see per-type rules below:
+        rectangle / polygon / freehand:
+            {"points": [{"x": 10, "y": 20}, {"x": 80, "y": 90}, ...]}
+        circle:
+            {"cx": 100, "cy": 150, "r": 40}
+    - category_id:  integer FK to the categories table (from the dropdown);
+                    nullable — can be omitted if no category is selected yet.
+    - ai_generated: set True when the annotation was produced by the AI model.
+    """
     image_id: str
-    category_id: int
+    annotation_type: Optional[str] = None
     label_data: Optional[dict] = None
+    category_id: Optional[int] = None
+    image_width: Optional[int] = None
+    image_height: Optional[int] = None
+    ai_generated: bool = False
+
+    @field_validator('annotation_type')
+    @classmethod
+    def check_annotation_type(cls, v: Optional[str]) -> Optional[str]:
+        if v is None:
+            return None
+        normalised = v.strip().lower()
+        if normalised not in ANNOTATION_TYPES:
+            raise ValueError(
+                f"annotation_type must be one of {sorted(ANNOTATION_TYPES)}, got '{v}'"
+            )
+        return normalised
 
 
 class AnnotationUpdate(BaseModel):
-    category_id: Optional[int] = None
+    """
+    Update an existing annotation (partial update — all fields optional).
+    """
+    annotation_type: Optional[str] = None
     label_data: Optional[dict] = None
+    category_id: Optional[int] = None
+    image_width: Optional[int] = None
+    image_height: Optional[int] = None
+    ai_generated: Optional[bool] = None
+
+    @field_validator('annotation_type')
+    @classmethod
+    def check_annotation_type(cls, v: Optional[str]) -> Optional[str]:
+        if v is None:
+            return v
+        normalised = v.strip().lower()
+        if normalised not in ANNOTATION_TYPES:
+            raise ValueError(
+                f"annotation_type must be one of {sorted(ANNOTATION_TYPES)}, got '{v}'"
+            )
+        return normalised
 
 
 class AnnotationResponse(BaseModel):
@@ -137,8 +194,13 @@ class AnnotationResponse(BaseModel):
 
     annotation_id: str
     image_id: str
-    category_id: int
+    category_id: Optional[int] = None
     annotated_by: str
+    annotation_type: Optional[str] = None
+    label_data_json: Optional[Any] = None
+    ai_generated: Optional[bool] = False
+    image_width: Optional[int] = None
+    image_height: Optional[int] = None
     label_json_path: Optional[str] = None
     yolo_label_path: Optional[str] = None
     annotated_at: Optional[datetime] = None
