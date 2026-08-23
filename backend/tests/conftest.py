@@ -16,10 +16,33 @@ os.chdir(backend_dir)
 from dotenv import load_dotenv
 load_dotenv(os.path.join(backend_dir, ".env"))
 
+from sqlalchemy import text
 from fastapi.testclient import TestClient
 from app.main import app
 from app.database import SessionLocal
 from app.models.user import User
+
+
+@pytest.fixture(scope="session", autouse=True)
+def reset_test_data():
+    """Clear persisted table state before the test suite to keep the DB isolated."""
+    session = SessionLocal()
+    try:
+        session.execute(text("TRUNCATE TABLE model_versions, training_jobs, annotations, images, users, categories RESTART IDENTITY CASCADE"))
+        session.commit()
+    except Exception:
+        for table in [
+            "model_versions",
+            "training_jobs",
+            "annotations",
+            "images",
+            "users",
+            "categories",
+        ]:
+            session.execute(text(f"DELETE FROM {table}"))
+        session.commit()
+    finally:
+        session.close()
 
 
 @pytest.fixture(scope="session")

@@ -9,13 +9,15 @@ from sqlalchemy import inspect
 
 insp = inspect(engine)
 cols = insp.get_columns('images')
-print("=== images table columns ===")
+import logging
+logger = logging.getLogger(__name__)
+logger.info("=== images table columns ===")
 for c in cols:
-    print(f"  {c['name']}: {c['type']} nullable={c['nullable']}")
+    logger.info(f"  {c['name']}: {c['type']} nullable={c['nullable']}")
 
 indexes = insp.get_indexes('images')
-print("\n=== images table indexes ===")
+logger.info("\n=== images table indexes ===")
 for ix in indexes:
-    print(f"  {ix['name']}: columns={ix['column_names']}")
+    logger.info(f"  {ix['name']}: columns={ix['column_names']}")
 
-print("\nMigration verification OK")
+logger.info("\nMigration verification OK")

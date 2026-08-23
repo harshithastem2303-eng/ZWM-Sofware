@@ -98,10 +98,10 @@ def register(user_in: UserRegister, db: Session = Depends(get_db)):
     db.refresh(new_user)
 
     # In production, send a real verification email here.
-    # In development, the token is printed to the console.
-    print(
-        f"[DEV] Email verification for {new_user.email} → token: {verification_token}"
-    )
+    # In development, log the token to the application logger so it respects configured handlers.
+    import logging
+    logger = logging.getLogger(__name__)
+    logger.info(f"[DEV] Email verification for {new_user.email} -> token: {verification_token}")
 
     return {"message": "User registered successfully", "user_id": new_user.user_id}
 

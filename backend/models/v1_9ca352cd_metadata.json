@@ -1,0 +1,1 @@
+{"job_id": "9ca352cd-65da-40e0-ad7a-a15fcaaeb8a9", "version": "v1", "run_name": "train_v1_9ca352cd", "metrics": {"map50": 0.5}, "data_yaml": "C:\\Users\\Keerthana\\ZWM_2208\\backend\\worker\\datasets\\9ca352cd-65da-40e0-ad7a-a15fcaaeb8a9\\data.yaml"}

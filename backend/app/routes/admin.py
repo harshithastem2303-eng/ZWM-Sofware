@@ -22,8 +22,12 @@ def get_categories(admin: User = Depends(require_admin), db: Session = Depends(g
 
 @router.post("/categories", response_model=dict, status_code=status.HTTP_201_CREATED)
 def create_category(category_in: CategoryCreate, admin: User = Depends(require_admin), db: Session = Depends(get_db)):
-    if db.query(Category).filter(Category.class_name == category_in.class_name).first():
-        raise HTTPException(status_code=409, detail="Category already exists")
+    existing = db.query(Category).filter(
+        (Category.class_name == category_in.class_name) |
+        (Category.class_code == category_in.class_code)
+    ).first()
+    if existing:
+        raise HTTPException(status_code=409, detail="Category name or code already exists")
 
     new_category = Category(
         class_name=category_in.class_name,

@@ -91,10 +91,12 @@ def run_tests():
     finally:
         db.close()
 
+    import logging
+    logger = logging.getLogger(__name__)
     for r in results:
-        print(f"{r['method']} {r['url']} - {r['status']}")
-        print(f"Response: {r['response']}")
-        print("-" * 40)
+        logger.info(f"{r['method']} {r['url']} - {r['status']}")
+        logger.info(f"Response: {r['response']}")
+        logger.info("-" * 40)
 
 if __name__ == "__main__":
     run_tests()

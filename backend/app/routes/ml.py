@@ -203,4 +203,16 @@ def predict(
             detail="BLOCKED: ultralytics package not available for YOLO inference.",
         )
     except Exception as e:
+        # Map model-load / corrupted-checkpoint errors to 503 (service blocked)
+        import pickle
+        err_text = str(e).lower()
+        if isinstance(e, (pickle.UnpicklingError, EOFError)) or "not a loadable checkpoint" in err_text or "pickle data was truncated" in err_text:
+            raise HTTPException(
+                status_code=503,
+                detail=(
+                    "BLOCKED: YOLO model file is missing or invalid. "
+                    "A valid .pt model is required for prediction."
+                ),
+            )
+        # Fallback: internal server error for unexpected failures
         raise HTTPException(status_code=500, detail=f"Prediction failed: {str(e)}")

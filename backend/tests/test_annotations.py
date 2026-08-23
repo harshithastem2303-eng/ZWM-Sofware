@@ -26,6 +26,7 @@ Tests:
 Baseline: all 137 existing tests must continue to pass.
 """
 import uuid
+import itertools
 import pytest
 from io import BytesIO
 from PIL import Image as PILImage, ImageDraw
@@ -55,6 +56,9 @@ def _make_test_jpeg(seed=42) -> BytesIO:
 # Shared setup helpers
 # ---------------------------------------------------------------------------
 
+_CATEGORY_CODE_COUNTER = itertools.count(1_000_000_000)
+
+
 def _upload_image(client, auth_headers, seed=42) -> str:
     buf = _make_test_jpeg(seed)
     r = client.post(
@@ -68,13 +72,15 @@ def _upload_image(client, auth_headers, seed=42) -> str:
 
 def _create_category(client, admin_headers) -> int:
     name = f"TestCat_{uuid.uuid4().hex[:6]}"
-    code = int(uuid.uuid4().int % 90000) + 1000
+    code = next(_CATEGORY_CODE_COUNTER)
     r = client.post(
         "/api/admin/categories",
         json={"class_name": name, "class_code": code},
         headers=admin_headers,
     )
-    assert r.status_code == 201
+    if r.status_code == 409:
+        return _create_category(client, admin_headers)
+    assert r.status_code == 201, r.json()
     return r.json()["category_id"]
 
 
