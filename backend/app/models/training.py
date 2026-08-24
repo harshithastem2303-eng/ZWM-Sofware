@@ -12,7 +12,7 @@ class TrainingJob(Base):
     job_id = Column(String(36), primary_key=True, default=lambda: str(uuid.uuid4()))
     version = Column(String(20), nullable=False)
     class_counts = Column(JSON, nullable=True)
-    status = Column(String(20), default="queued")
+    status = Column(String(20), default="queued", index=True)
     best_model_path = Column(Text, nullable=True)
     metadata_path = Column(Text, nullable=True)
     started_at = Column(DateTime(timezone=True), nullable=True)
@@ -27,7 +27,7 @@ class ModelVersion(Base):
     model_id = Column(String(36), primary_key=True, default=lambda: str(uuid.uuid4()))
     job_id = Column(String(36), ForeignKey("training_jobs.job_id"), nullable=False)
     version = Column(String(20), nullable=False)
-    is_current = Column(Boolean, default=False)
+    is_current = Column(Boolean, default=False, index=True)
     map_score = Column(Float, nullable=True)
     created_at = Column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc))
     updated_at = Column(

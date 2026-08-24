@@ -1,0 +1,15 @@
+.git
+.gitignore
+.venv
+.env
+.pytest_cache
+pytest_output.txt
+__pycache__
+*.pyc
+*.pyo
+*.pyd
+*.db
+uploads/
+models/*.onnx
+models/*.pt
+scratch/

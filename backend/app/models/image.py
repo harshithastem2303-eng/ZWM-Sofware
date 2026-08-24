@@ -58,4 +58,5 @@ class Image(Base):
     __table_args__ = (
         Index("ix_images_status", "status"),
         Index("ix_images_temporary_expires_at", "temporary_expires_at"),
+        Index("ix_images_user_id_uploaded_at", "user_id", "uploaded_at"),
     )

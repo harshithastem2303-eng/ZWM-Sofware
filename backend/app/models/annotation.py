@@ -11,7 +11,7 @@ class Annotation(Base):
 
     # -- Core identity --------------------------------------------------------
     annotation_id = Column(String(36), primary_key=True, default=lambda: str(uuid.uuid4()))
-    image_id = Column(String(36), ForeignKey("images.image_id"), nullable=False)
+    image_id = Column(String(36), ForeignKey("images.image_id"), nullable=False, index=True)
     # category_id is nullable: set via predefined dropdown — no hardcoded default
     category_id = Column(Integer, ForeignKey("categories.category_id"), nullable=True)
     annotated_by = Column(String(36), ForeignKey("users.user_id"), nullable=False)

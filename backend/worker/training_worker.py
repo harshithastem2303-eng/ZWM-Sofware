@@ -317,6 +317,7 @@ def process_job_once() -> bool:
 
 
 def run_loop(poll_interval: int = 30):
+    logger.warning("DEPRECATION WARNING: Continuous DB polling via training_worker.py is deprecated in favor of Celery. Running for legacy support.")
     logger.info("Starting training worker loop (poll_interval=%s seconds)", poll_interval)
     try:
         while True:
@@ -328,6 +329,7 @@ def run_loop(poll_interval: int = 30):
 
 
 if __name__ == '__main__':
+    logger.warning("DEPRECATION WARNING: Running training_worker.py direct execution is deprecated in favor of Celery.")
     parser = argparse.ArgumentParser()
     parser.add_argument('--once', action='store_true', help='Process only a single queued job and exit')
     parser.add_argument('--poll', type=int, default=30, help='Poll interval in seconds for loop mode')

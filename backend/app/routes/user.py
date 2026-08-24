@@ -48,3 +48,19 @@ def get_rewards(current_user: User = Depends(get_current_user)):
         "reward_points": current_user.reward_points,
         "total_images_contributed": current_user.image_count
     }
+
+@router.get("/rewards/history", response_model=dict)
+def get_reward_history(current_user: User = Depends(get_current_user), db: Session = Depends(get_db)):
+    from app.models.user import RewardTransaction
+    txs = db.query(RewardTransaction).filter(RewardTransaction.user_id == current_user.user_id).order_by(RewardTransaction.created_at.desc()).all()
+    results = [
+        {
+            "transaction_id": t.transaction_id,
+            "image_id": t.image_id,
+            "points": t.points,
+            "description": t.description,
+            "created_at": t.created_at
+        }
+        for t in txs
+    ]
+    return {"history": results}

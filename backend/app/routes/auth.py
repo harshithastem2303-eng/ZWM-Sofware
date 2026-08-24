@@ -24,6 +24,7 @@ from app.schemas.schemas import (
     TokenResponse, TokenRefreshResponse, MessageResponse,
     VerifyEmailRequest, ResetPasswordRequest,
 )
+import jwt
 from app.dependencies.auth import (
     create_access_token,
     create_refresh_token,
@@ -31,6 +32,7 @@ from app.dependencies.auth import (
     get_current_user_from_refresh_token,
     get_token_jti,
     revoke_token,
+    oauth2_scheme,
 )
 
 router = APIRouter()
@@ -186,6 +188,7 @@ def token_login(
 
 @router.post("/refresh", response_model=TokenRefreshResponse)
 def refresh(
+    token: str = Depends(oauth2_scheme),
     user_and_jti: tuple = Depends(get_current_user_from_refresh_token),
 ):
     """
@@ -198,7 +201,14 @@ def refresh(
 
     # Revoke the used refresh token (one-time use per token).
     if old_jti:
-        revoke_token(old_jti)
+        exp = None
+        if token:
+            try:
+                payload = jwt.decode(token, options={"verify_signature": False})
+                exp = payload.get("exp")
+            except Exception:
+                pass
+        revoke_token(old_jti, exp)
 
     new_access_token = create_access_token(
         identity=current_user.user_id,
@@ -214,7 +224,7 @@ def refresh(
 
 @router.post("/logout", response_model=MessageResponse)
 def logout(
-    jti: str = Depends(get_token_jti),
+    token: str = Depends(oauth2_scheme),
     current_user: User = Depends(get_current_user),
 ):
     """
@@ -223,8 +233,15 @@ def logout(
     After logout, the token is added to the revocation blacklist and will be
     rejected by every protected endpoint.
     """
-    if jti:
-        revoke_token(jti)
+    if token:
+        try:
+            payload = jwt.decode(token, options={"verify_signature": False})
+            jti = payload.get("jti")
+            exp = payload.get("exp")
+            if jti:
+                revoke_token(jti, exp)
+        except Exception:
+            pass
     return {"message": "Successfully logged out"}
 
 

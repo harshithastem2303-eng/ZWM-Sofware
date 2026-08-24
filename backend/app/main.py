@@ -7,6 +7,41 @@ Includes:
   - All route registrations
   - Background cleanup scheduler (APScheduler) for expired temporary images
 """
+from app.logging_config import setup_logging
+setup_logging()
+
+import os
+import sentry_sdk
+from sentry_sdk.integrations.fastapi import FastApiIntegration
+
+sentry_dsn = os.getenv("SENTRY_DSN")
+if sentry_dsn:
+    def before_send(event, hint):
+        req = event.get("request", {})
+        if req:
+            headers = req.get("headers", {})
+            for key in list(headers.keys()):
+                if any(k in key.lower() for k in ["authorization", "cookie", "token", "jwt", "x-api-key"]):
+                    headers[key] = "[REDACTED]"
+            data = req.get("data")
+            if isinstance(data, dict):
+                for key in list(data.keys()):
+                    if any(k in key.lower() for k in ["password", "token", "jwt", "secret", "credentials"]):
+                        data[key] = "[REDACTED]"
+        extra = event.get("extra", {})
+        for key in list(extra.keys()):
+            if any(k in key.lower() for k in ["password", "token", "jwt", "secret", "credentials"]):
+                extra[key] = "[REDACTED]"
+        return event
+
+    sentry_sdk.init(
+        dsn=sentry_dsn,
+        integrations=[FastApiIntegration()],
+        traces_sample_rate=1.0,
+        environment=os.getenv("APP_ENV", "development"),
+        before_send=before_send,
+    )
+
 from contextlib import asynccontextmanager
 
 from fastapi import FastAPI, Request
@@ -60,6 +95,21 @@ app = FastAPI(
 app.state.limiter = limiter
 app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)
 
+from app.exceptions import (
+    ZWMException,
+    zwm_exception_handler,
+    http_exception_handler,
+    validation_exception_handler,
+    unhandled_exception_handler,
+)
+from fastapi.exceptions import RequestValidationError
+from starlette.exceptions import HTTPException as StarletteHTTPException
+
+app.add_exception_handler(ZWMException, zwm_exception_handler)
+app.add_exception_handler(StarletteHTTPException, http_exception_handler)
+app.add_exception_handler(RequestValidationError, validation_exception_handler)
+app.add_exception_handler(Exception, unhandled_exception_handler)
+
 # ---------------------------------------------------------------------------
 # CORS — origins come from settings, NOT hardcoded '*'
 # In development:  http://localhost:3000, http://localhost:5173, etc.
@@ -72,6 +122,9 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+from app.middleware.logging_middleware import StructuredLoggingMiddleware
+app.add_middleware(StructuredLoggingMiddleware)
 
 # ---------------------------------------------------------------------------
 # Routers
@@ -89,3 +142,21 @@ app.include_router(lifecycle_router, prefix="/api/lifecycle", tags=["Lifecycle"]
 @app.get("/")
 def read_root():
     return {"message": "Welcome to the ZWM API"}
+
+
+from fastapi import Depends, HTTPException, status
+from sqlalchemy.orm import Session
+from sqlalchemy.sql import text
+from app.database import get_db
+
+@app.get("/api/health/db", tags=["Health"])
+def health_db(db: Session = Depends(get_db)):
+    """Database connectivity healthcheck query."""
+    try:
+        db.execute(text("SELECT 1"))
+        return {"status": "healthy", "database": "connected"}
+    except Exception as e:
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail=f"Database health check failed: {str(e)}"
+        )

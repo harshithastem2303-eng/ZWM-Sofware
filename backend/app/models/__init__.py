@@ -3,7 +3,7 @@ from .annotation import Annotation
 from .category import Category
 from .image import Image
 from .training import ModelVersion, TrainingJob
-from .user import Admin, User
+from .user import Admin, User, RewardTransaction
 
 __all__ = [
     "Base",
@@ -14,4 +14,5 @@ __all__ = [
     "Annotation",
     "TrainingJob",
     "ModelVersion",
+    "RewardTransaction",
 ]

@@ -39,25 +39,60 @@ from app.models.user import User
 oauth2_scheme = OAuth2PasswordBearer(tokenUrl="/api/auth/token", auto_error=False)
 
 
+import logging
+import redis
+
 # ---------------------------------------------------------------------------
-# In-memory token blacklist.
+# Redis Token Blacklist with In-memory Fallback.
 # Stores jti (JWT ID) strings of revoked tokens.
-#
-# Production note: this set is cleared on every server restart.
-# For a multi-process or multi-instance deployment replace this with
-# a Redis SET or a database table (e.g., revoked_tokens).
 # ---------------------------------------------------------------------------
-_revoked_jtis: Set[str] = set()
+logger = logging.getLogger("auth_redis")
+
+try:
+    redis_client = redis.from_url(settings.REDIS_URL, decode_responses=True, socket_connect_timeout=2)
+except Exception as e:
+    logger.warning(f"Failed to initialize Redis client: {e}. Blacklist fallback to memory will be used.")
+    redis_client = None
+
+_revoked_jtis_fallback: Set[str] = set()
 
 
-def revoke_token(jti: str) -> None:
-    """Add a token's JTI to the revocation blacklist."""
-    _revoked_jtis.add(jti)
+def revoke_token(jti: str, exp: int = None) -> None:
+    """Add a token's JTI to the revocation blacklist (Redis or memory fallback)."""
+    if not jti:
+        return
+        
+    ttl = 2592000  # Default 30 days
+    if exp:
+        now = int(datetime.now(timezone.utc).timestamp())
+        ttl = max(1, exp - now)
+        
+    if redis_client is not None:
+        try:
+            redis_client.setex(f"blacklist:{jti}", ttl, "true")
+            logger.info(f"Revoked JTI {jti} in Redis with TTL={ttl}s")
+            return
+        except Exception as e:
+            logger.warning(f"Redis write error during token revocation of {jti}: {e}")
+            
+    _revoked_jtis_fallback.add(jti)
+    logger.warning(f"Revoked JTI {jti} in memory fallback due to Redis unavailable")
 
 
 def is_token_revoked(jti: str) -> bool:
-    """Return True if this token has been revoked (logged out)."""
-    return jti in _revoked_jtis
+    """Return True if this token JTI is blacklisted in Redis or memory fallback."""
+    if not jti:
+        return False
+        
+    if redis_client is not None:
+        try:
+            val = redis_client.get(f"blacklist:{jti}")
+            if val is not None:
+                return True
+        except Exception as e:
+            logger.warning(f"Redis read error during validation check of JTI {jti}: {e}")
+            
+    return jti in _revoked_jtis_fallback
 
 
 # ---------------------------------------------------------------------------
@@ -167,6 +202,9 @@ def get_current_user(
             headers={"WWW-Authenticate": "Bearer"},
         )
 
+    from app.logging_config import user_id_var
+    user_id_var.set(user_id)
+
     user = db.query(User).filter(User.user_id == user_id).first()
     if user is None:
         raise HTTPException(
@@ -202,6 +240,9 @@ def get_current_user_from_refresh_token(
             detail="Could not validate credentials",
             headers={"WWW-Authenticate": "Bearer"},
         )
+
+    from app.logging_config import user_id_var
+    user_id_var.set(user_id)
 
     user = db.query(User).filter(User.user_id == user_id).first()
     if user is None:

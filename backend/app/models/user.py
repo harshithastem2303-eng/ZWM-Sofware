@@ -51,3 +51,14 @@ class Admin(Base):
         default=lambda: datetime.now(timezone.utc),
         onupdate=lambda: datetime.now(timezone.utc),
     )
+
+
+class RewardTransaction(Base):
+    __tablename__ = "reward_transactions"
+    
+    transaction_id = Column(String(36), primary_key=True, default=lambda: str(uuid.uuid4()))
+    user_id = Column(String(36), ForeignKey("users.user_id"), nullable=False)
+    image_id = Column(String(36), ForeignKey("images.image_id"), nullable=True)
+    points = Column(Integer, nullable=False)
+    description = Column(String(255), nullable=True)
+    created_at = Column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc))

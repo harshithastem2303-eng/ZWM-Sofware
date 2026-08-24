@@ -33,6 +33,11 @@ class Settings(BaseSettings):
     DATABASE_URL: str = "postgresql://postgres:postgres@localhost:5432/zwm_db"
 
     # -----------------------------------------------------------------------
+    # Redis
+    # -----------------------------------------------------------------------
+    REDIS_URL: str = "redis://localhost:6379/0"
+
+    # -----------------------------------------------------------------------
     # CORS — comma-separated list of allowed origins.
     # In development, defaults to common local dev origins.
     # In production, set to your actual frontend domain(s).
@@ -71,6 +76,8 @@ class Settings(BaseSettings):
         "models",
         "best.pt",
     )
+    YOLO_CONFIDENCE_THRESHOLD: float = 0.25
+    YOLO_INFERENCE_BACKEND: str = "onnx"
 
     # -----------------------------------------------------------------------
     # Image Lifecycle
