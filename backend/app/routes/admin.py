@@ -8,8 +8,103 @@ from app.models.category import Category
 from app.models.image import Image
 from app.dependencies.auth import require_admin
 from app.schemas.schemas import CategoryCreate, MessageResponse
+from sqlalchemy import func
+from app.config import settings
+from app.schemas.schemas import UserLogin, TokenResponse
+from app.routes.auth import get_password_hash, verify_password
+from app.dependencies.auth import create_access_token, create_refresh_token
 
 router = APIRouter()
+
+@router.post("/login", response_model=TokenResponse)
+def admin_login(login_in: UserLogin, db: Session = Depends(get_db)):
+    """Authenticate Admin using secure environment configuration and return JWT."""
+    req_email = login_in.email.strip().lower()
+    admin_email = settings.ADMIN_EMAIL.strip().lower()
+    admin_password = settings.ADMIN_PASSWORD.strip()
+    
+    print(f"[DEBUG_LOGIN] Input email: '{req_email}' | Config email: '{admin_email}'")
+    print(f"[DEBUG_LOGIN] Input password: '{login_in.password.strip()}' | Config password: '{admin_password}'")
+    
+    if req_email != admin_email or login_in.password.strip() != admin_password:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Invalid admin credentials",
+        )
+        
+    # Ensure admin exists in DB so downstream require_admin checks succeed
+    user = db.query(User).filter(func.lower(User.email) == req_email).first()
+    if not user:
+        user = User(
+            email=admin_email,
+            password_hash=get_password_hash(admin_password),
+            full_name="System Admin",
+            role="admin",
+            is_email_verified=True,
+        )
+        db.add(user)
+        db.commit()
+        db.refresh(user)
+    else:
+        needs_update = False
+        if user.role != "admin":
+            user.role = "admin"
+            needs_update = True
+        if not verify_password(admin_password, user.password_hash):
+            user.password_hash = get_password_hash(admin_password)
+            needs_update = True
+        if needs_update:
+            db.commit()
+            db.refresh(user)
+            
+    access_token = create_access_token(identity=user.user_id, role=user.role)
+    refresh_token = create_refresh_token(identity=user.user_id)
+    
+    return {
+        "message": "Admin login successful",
+        "access_token": access_token,
+        "refresh_token": refresh_token,
+        "user_id": user.user_id,
+        "role": user.role,
+    }
+
+class CreateAdminRequest(BaseModel):
+    admin_id: str
+    email: str
+    role: str
+
+@router.post("/create", response_model=dict, status_code=status.HTTP_201_CREATED)
+def create_admin(request_in: CreateAdminRequest, current_admin: User = Depends(require_admin), db: Session = Depends(get_db)):
+    """Register a new admin user in the system (requires admin authentication)."""
+    email_clean = request_in.email.strip().lower()
+    
+    existing = db.query(User).filter(func.lower(User.email) == email_clean).first()
+    if existing:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="A user or admin with this email already exists",
+        )
+        
+    temp_password = "ZWMAdmin123!"
+    new_admin = User(
+        email=email_clean,
+        password_hash=get_password_hash(temp_password),
+        full_name=request_in.admin_id.strip(),
+        role="admin",
+        is_email_verified=True,
+    )
+    db.add(new_admin)
+    db.commit()
+    db.refresh(new_admin)
+    
+    return {
+        "message": "Admin created successfully",
+        "user_id": new_admin.user_id,
+        "email": new_admin.email,
+        "role": request_in.role,
+        "temp_password": temp_password,
+    }
+
 
 class ImageApproveRequest(BaseModel):
     action: str
@@ -54,13 +149,41 @@ def list_users(admin: User = Depends(require_admin), db: Session = Depends(get_d
 
 @router.get("/validation-queue", response_model=dict)
 def get_validation_queue(admin: User = Depends(require_admin), db: Session = Depends(get_db)):
-    images = db.query(Image).filter(Image.status == "uploaded", Image.is_validated == False).all()
-    results = [{
-        "image_id": img.image_id,
-        "original_filename": img.original_filename,
-        "uploaded_at": img.uploaded_at
-    } for img in images]
+    images = (
+        db.query(Image)
+        .filter(Image.status == "uploaded", Image.is_validated == False)
+        .order_by(Image.uploaded_at.desc())
+        .all()
+    )
+    
+    results = []
+    for img in images:
+        uploader = db.query(User).filter(User.user_id == img.user_id).first()
+        uploader_email = uploader.email if uploader else "Unknown"
+        
+        # Gather annotations
+        img_annotations = []
+        for ann in img.annotations:
+            cat = db.query(Category).filter(Category.category_id == ann.category_id).first()
+            img_annotations.append({
+                "annotation_id": ann.annotation_id,
+                "category_id": ann.category_id,
+                "category_name": cat.class_name if cat else "Unclassified",
+                "annotation_type": ann.annotation_type,
+                "label_data": ann.label_data_json,
+                "ai_generated": ann.ai_generated
+            })
+            
+        results.append({
+            "image_id": img.image_id,
+            "original_filename": img.original_filename,
+            "uploaded_at": str(img.uploaded_at) if img.uploaded_at else None,
+            "uploader_email": uploader_email,
+            "annotations": img_annotations
+        })
+        
     return {"queue": results}
+
 
 @router.post("/images/{image_id}/approve", response_model=MessageResponse)
 def approve_image(image_id: str, request_in: ImageApproveRequest, admin: User = Depends(require_admin), db: Session = Depends(get_db)):
@@ -199,6 +322,42 @@ def analytics_details(
     )
     monthly_stats = [{"month": str(row[0].date().strftime("%Y-%m")) if row[0] else None, "count": row[1]} for row in monthly_uploads]
     
+    # Detailed Monthly Pipeline metrics (uploaded vs validated vs rejected)
+    monthly_validated = (
+        db.query(func.date_trunc('month', Image.validated_at).label('month'), func.count(Image.image_id))
+        .filter(Image.is_validated == True, Image.status == "approved")
+        .group_by('month')
+        .order_by('month')
+        .all()
+    )
+    monthly_val_stats = {
+        (row[0].date().strftime("%Y-%m") if row[0] else None): row[1]
+        for row in monthly_validated
+    }
+
+    monthly_rejected = (
+        db.query(func.date_trunc('month', Image.uploaded_at).label('month'), func.count(Image.image_id))
+        .filter(Image.status == "rejected")
+        .group_by('month')
+        .order_by('month')
+        .all()
+    )
+    monthly_rej_stats = {
+        (row[0].date().strftime("%Y-%m") if row[0] else None): row[1]
+        for row in monthly_rejected
+    }
+
+    monthly_pipeline = []
+    for row in monthly_uploads:
+        m_str = row[0].date().strftime("%Y-%m") if row[0] else None
+        if m_str:
+            monthly_pipeline.append({
+                "month": m_str,
+                "uploaded": row[1],
+                "validated": monthly_val_stats.get(m_str, 0),
+                "rejected": monthly_rej_stats.get(m_str, 0)
+            })
+
     type_counts = (
         ann_query.with_entities(Annotation.annotation_type, func.count(Annotation.annotation_id))
         .group_by(Annotation.annotation_type)
@@ -239,15 +398,24 @@ def analytics_details(
     avg_duration = sum(durations) / len(durations) if durations else 0.0
     
     top_contributors = (
-        db.query(User.user_id, User.email, User.full_name, User.image_count)
+        db.query(User.user_id, User.email, User.full_name, User.image_count, User.reward_points)
+        .filter(User.role == "user")
         .order_by(User.image_count.desc())
         .limit(10)
         .all()
     )
-    contributor_stats = [
-        {"user_id": row[0], "email": row[1], "full_name": row[2], "uploads": row[3] or 0}
-        for row in top_contributors
-    ]
+    contributor_stats = []
+    for row in top_contributors:
+        approved_count = row[3] or 0
+        uploaded_count = db.query(Image).filter(Image.user_id == row[0]).count()
+        contributor_stats.append({
+            "user_id": row[0],
+            "email": row[1],
+            "full_name": row[2],
+            "approved": approved_count,
+            "uploads": max(uploaded_count, approved_count),
+            "reward_points": row[4] or 0
+        })
     
     return {
         "summary": {
@@ -261,6 +429,7 @@ def analytics_details(
         "category_breakdown": category_stats,
         "daily_uploads": daily_stats,
         "monthly_uploads": monthly_stats,
+        "monthly_pipeline": monthly_pipeline,
         "annotation_types": annotation_types,
         "dataset_growth": growth_stats,
         "training": {
@@ -269,3 +438,129 @@ def analytics_details(
         },
         "top_contributors": contributor_stats
     }
+
+
+@router.get("/activities", response_model=dict)
+def get_recent_activities(admin: User = Depends(require_admin), db: Session = Depends(get_db)):
+    """Aggregate and return recent system activities from the database."""
+    recent_approvals = (
+        db.query(Image)
+        .filter(Image.status == "approved", Image.is_validated == True)
+        .order_by(Image.validated_at.desc())
+        .limit(10)
+        .all()
+    )
+
+    recent_uploads = (
+        db.query(Image)
+        .filter(Image.status == "uploaded", Image.is_validated == False)
+        .order_by(Image.uploaded_at.desc())
+        .limit(10)
+        .all()
+    )
+
+    from app.models.training import TrainingJob
+    recent_jobs = (
+        db.query(TrainingJob)
+        .order_by(TrainingJob.started_at.desc())
+        .limit(10)
+        .all()
+    )
+
+    activities = []
+
+    for img in recent_approvals:
+        activities.append({
+            "id": f"approve-{img.image_id}",
+            "type": "approval",
+            "description": f"Admin approved image {img.original_filename}.",
+            "timestamp": str(img.validated_at) if img.validated_at else str(img.uploaded_at),
+            "status_color": "green"
+        })
+
+    for img in recent_uploads:
+        activities.append({
+            "id": f"upload-{img.image_id}",
+            "type": "upload",
+            "description": f"New image uploaded: {img.original_filename}.",
+            "timestamp": str(img.uploaded_at),
+            "status_color": "blue"
+        })
+
+    for job in recent_jobs:
+        status_color = "indigo" if job.status == "completed" else "amber" if job.status in ("running", "queued") else "red"
+        activities.append({
+            "id": f"job-{job.job_id}",
+            "type": "training",
+            "description": f"Retraining job {job.version} is {job.status}.",
+            "timestamp": str(job.completed_at) if job.completed_at else str(job.started_at),
+            "status_color": status_color
+        })
+
+    activities.sort(key=lambda x: x["timestamp"], reverse=True)
+    return {"activities": activities[:10]}
+
+
+@router.get("/health/system", response_model=dict)
+def get_system_health(admin: User = Depends(require_admin), db: Session = Depends(get_db)):
+    """Dynamically check health status of API, Database, Storage, Redis, Celery, and ML services."""
+    api_status = "operational"
+
+    db_status = "connected"
+    try:
+        from sqlalchemy.sql import text
+        db.execute(text("SELECT 1"))
+    except Exception:
+        db_status = "disconnected"
+
+    storage_status = "connected"
+    try:
+        from app.config import settings
+        import os
+        upload_dir = settings.UPLOAD_FOLDER
+        if not os.path.exists(upload_dir):
+            os.makedirs(upload_dir, exist_ok=True)
+        test_file = os.path.join(upload_dir, ".health_check_temp")
+        with open(test_file, "w") as f:
+            f.write("test")
+        os.remove(test_file)
+    except Exception:
+        storage_status = "disconnected"
+
+    redis_status = "connected"
+    try:
+        import redis
+        from app.config import settings
+        r = redis.from_url(settings.REDIS_URL, socket_timeout=1.0)
+        r.ping()
+    except Exception:
+        redis_status = "disconnected"
+
+    celery_status = "running"
+    try:
+        from app.celery_app import celery_app
+        ins = celery_app.control.inspect(timeout=1.0)
+        ping_res = ins.ping()
+        if not ping_res:
+            celery_status = "offline"
+    except Exception:
+        celery_status = "offline"
+
+    ml_status = "available"
+    try:
+        from app.config import settings
+        import os
+        if not os.path.exists(settings.YOLO_MODEL_PATH):
+            ml_status = "unavailable"
+    except Exception:
+        ml_status = "unavailable"
+
+    return {
+        "api": api_status,
+        "database": db_status,
+        "storage": storage_status,
+        "redis": redis_status,
+        "celery": celery_status,
+        "ml_service": ml_status
+    }
+

@@ -10,7 +10,7 @@ from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
 class Settings(BaseSettings):
-    model_config = SettingsConfigDict(env_file=".env", env_file_encoding="utf-8")
+    model_config = SettingsConfigDict(env_file=".env", env_file_encoding="utf-8", extra="ignore")
 
     # -----------------------------------------------------------------------
     # Environment mode:  development | staging | production
@@ -27,10 +27,14 @@ class Settings(BaseSettings):
     JWT_SECRET_KEY: str = ""
     JWT_ACCESS_TOKEN_EXPIRES_HOURS: int = 24
 
+    # Admin Credentials
+    ADMIN_EMAIL: str = "admin@gmail.com"
+    ADMIN_PASSWORD: str = "user123"
+
     # -----------------------------------------------------------------------
     # Database
     # -----------------------------------------------------------------------
-    DATABASE_URL: str = "postgresql://postgres:postgres@localhost:5432/zwm_db"
+    DATABASE_URL: str = "postgresql://postgres:subhash8296424069@localhost:5432/ZWM"
 
     # -----------------------------------------------------------------------
     # Redis

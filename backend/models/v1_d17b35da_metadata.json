@@ -1,0 +1,1 @@
+{"job_id": "d17b35da-e60b-492b-9f97-df5a1fe626db", "version": "v1", "status": "failed", "error": "Training completed but weights file (best.pt) was missing.", "failed_at": "2026-08-28 05:08:46.023729+00:00"}

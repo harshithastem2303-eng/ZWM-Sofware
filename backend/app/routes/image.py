@@ -200,3 +200,27 @@ def delete_image(
     db.delete(image)
     db.commit()
     return {"message": "Image deleted successfully"}
+
+
+@router.get("/{image_id}/file")
+def get_image_file(
+    image_id: str,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    """Serve the raw image file securely to authenticated owner or admin."""
+    image = db.query(Image).filter(Image.image_id == image_id).first()
+    if not image:
+        raise HTTPException(status_code=404, detail="Image not found")
+
+    # Authorize: owner or admin
+    if image.user_id != current_user.user_id and current_user.role != "admin":
+        raise HTTPException(status_code=403, detail="Not authorized to access this image file")
+
+    path = image.permanent_s3_path or image.temp_s3_path
+    if not path or not os.path.exists(path):
+        raise HTTPException(status_code=404, detail="Image file not found on disk")
+
+    from fastapi.responses import FileResponse
+    return FileResponse(path)
+
