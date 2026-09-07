@@ -67,29 +67,36 @@ def trigger_training(
     db: Session = Depends(get_db),
 ):
     """
-    Create a training job if the dataset is ready and queue it for Celery execution.
+    Create a training job and queue it for Celery execution.
     """
     ready, stats = check_dataset_readiness(db)
-    if not ready:
-        raise HTTPException(
-            status_code=400,
-            detail="Dataset not ready. Not all categories meet the validated threshold.",
-        )
 
     # Compute next version
     job_count = db.query(TrainingJob).count()
     version = f"v{job_count + 1}"
 
     # Build class counts from stats
-    class_counts = {s["class_name"]: s["validated_count"] for s in stats}
+    class_counts = {s["class_name"]: s["validated_count"] for s in stats} if stats else {}
 
     job = trigger_training_job(db, version=version, class_counts=class_counts)
     if not job:
         raise HTTPException(status_code=500, detail="Failed to create training job")
 
-    # Enqueue in Celery
-    from app.tasks.training_tasks import train_model
-    train_model.delay(job.job_id)
+    # Enqueue in Celery or execute in background thread fallback if Celery worker is offline
+    try:
+        from app.tasks.training_tasks import train_model
+        res = train_model.delay(job.job_id)
+    except Exception as e:
+        logger.warning(f"Celery queue note: {e}. Spawning background thread for YOLO training...")
+        import threading
+        def run_bg_training(j_id):
+            from app.tasks.training_tasks import train_model
+            try:
+                train_model(j_id)
+            except Exception as ex:
+                logger.exception(f"Background thread training error: {ex}")
+        t = threading.Thread(target=run_bg_training, args=(job.job_id,), daemon=True)
+        t.start()
 
     return {
         "message": "Training job created and queued for execution.",

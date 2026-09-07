@@ -129,6 +129,18 @@ def admin_auth(client):
 
 
 @pytest.fixture()
+def auth_headers(user_auth):
+    """Headers dictionary for regular user authentication."""
+    return user_auth["headers"]
+
+
+@pytest.fixture()
+def admin_headers(admin_auth):
+    """Headers dictionary for admin user authentication."""
+    return admin_auth["headers"]
+
+
+@pytest.fixture()
 def test_image_file():
     """Create a valid 800x600 JPEG image with texture (passes blur check)."""
     from PIL import Image as PILImage, ImageDraw

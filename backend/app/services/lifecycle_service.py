@@ -47,6 +47,16 @@ _EV_TRANSFER_FAILED = "PERMANENT_TRANSFER_FAILED"
 _EV_CLEANUP_DONE = "CLEANUP_COMPLETED"
 
 
+def slugify_category_name(name: Optional[str]) -> str:
+    """Convert category class_name to directory slug (e.g. 'PET Bottles' -> 'pet_bottles')."""
+    if not name:
+        return "general"
+    import re
+    slug = re.sub(r"[^\w\s-]", "", name).strip().lower()
+    slug = re.sub(r"[-\s]+", "_", slug)
+    return slug or "general"
+
+
 # ---------------------------------------------------------------------------
 # YOLO TXT validation
 # ---------------------------------------------------------------------------
@@ -191,7 +201,12 @@ def promote_to_permanent(
 
     # --- 4. Build permanent destination paths ------------------------------
     _, ext = os.path.splitext(temp_img_path)
-    user_id = image.user_id
+
+    cat_name = None
+    if image.selected_category:
+        cat_name = image.selected_category.class_name
+
+    category_slug = slugify_category_name(cat_name)
 
     # Derive the root uploads folder from temp_s3_path
     # Expected pattern: .../uploads/temporary/{user_id}/{uuid}{ext}
@@ -201,9 +216,11 @@ def promote_to_permanent(
         if os.path.basename(temp_root) == "uploads":
             break
 
-    perm_dir = os.path.join(temp_root, "permanent", user_id)
-    perm_img_path = os.path.join(perm_dir, f"{image_id}{ext}")
-    perm_txt_path = os.path.join(perm_dir, f"{image_id}.txt")
+    dataset_img_dir = os.path.join(temp_root, "dataset", category_slug, "images")
+    dataset_lbl_dir = os.path.join(temp_root, "dataset", category_slug, "labels")
+
+    perm_img_path = os.path.join(dataset_img_dir, f"{image_id}{ext}")
+    perm_txt_path = os.path.join(dataset_lbl_dir, f"{image_id}.txt")
 
     # --- 5. Copy image to permanent ----------------------------------------
     if not _safe_copy(temp_img_path, perm_img_path):

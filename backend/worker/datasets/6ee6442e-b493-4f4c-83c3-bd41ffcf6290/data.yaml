@@ -1,0 +1,1 @@
+{"path": "e:\\Users\\subha\\OneDrive\\Desktop\\demo\\backend\\worker\\datasets\\6ee6442e-b493-4f4c-83c3-bd41ffcf6290", "train": "images/train", "val": "images/val", "nc": 5, "names": ["PET Bottles", "Lays Packets", "Milk Pouches", "glass", "aaaa"]}

@@ -1,7 +1,13 @@
 import React from 'react';
 import { BarChart3, Cpu, Layers, Download, TrendingUp, CheckCircle, Clock, AlertTriangle, Users, Image as ImageIcon } from 'lucide-react';
+import CountUp from '../components/CountUp';
+import useInView from '../hooks/useInView';
 
 const ReportsView = ({ analytics }) => {
+  // Scroll In-View Animation Refs
+  const [funnelRef, funnelInView] = useInView({ threshold: 0.15 });
+  const [categoriesRef, categoriesInView] = useInView({ threshold: 0.15 });
+
   // Extract details safely
   const summary = analytics?.summary || {};
   const totalUsers = summary.total_users || 0;
@@ -17,9 +23,9 @@ const ReportsView = ({ analytics }) => {
   const avgTrainingDuration = training.average_duration_minutes || 0;
 
   // Calculate percentages
-  const validationRate = totalImages > 0 ? ((validatedImages / totalImages) * 100).toFixed(1) : 0;
-  const pendingRate = totalImages > 0 ? ((pendingImages / totalImages) * 100).toFixed(1) : 0;
-  const rejectionRate = totalImages > 0 ? ((rejectedImages / totalImages) * 100).toFixed(1) : 0;
+  const validationRate = totalImages > 0 ? parseFloat(((validatedImages / totalImages) * 100).toFixed(1)) : 0;
+  const pendingRate = totalImages > 0 ? parseFloat(((pendingImages / totalImages) * 100).toFixed(1)) : 0;
+  const rejectionRate = totalImages > 0 ? parseFloat(((rejectedImages / totalImages) * 100).toFixed(1)) : 0;
 
   // Calculate category totals
   const totalCategoryImages = categoryBreakdown.reduce((sum, cat) => sum + cat.count, 0);
@@ -255,10 +261,10 @@ const ReportsView = ({ analytics }) => {
       {/* Page Heading */}
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: '28px' }}>
         <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
-          <h1 style={{ fontSize: '32px', fontWeight: 700, color: '#0F172A', fontFamily: 'var(--font-main)', lineHeight: '1.2' }}>
+          <h1 style={{ fontSize: '32px', fontWeight: 800, color: '#38240d', fontFamily: 'var(--font-main)', lineHeight: '1.2' }}>
             Reports
           </h1>
-          <p style={{ fontSize: '14px', fontWeight: 400, color: '#64748B', fontFamily: 'var(--font-main)' }}>
+          <p style={{ fontSize: '14px', fontWeight: 400, color: '#786c5e', fontFamily: 'var(--font-main)' }}>
             Analyze dataset growth, validation performance, and system activity.
           </p>
         </div>
@@ -269,8 +275,7 @@ const ReportsView = ({ analytics }) => {
         </button>
       </div>
 
-
-      {/* Grid of Metric Blocks */}
+      {/* Grid of Metric Blocks with Scroll CountUp Animations */}
       <section className="metrics-row" style={{ gridTemplateColumns: 'repeat(3, 1fr)' }}>
         {/* Core Collection Card */}
         <div className="metric-card" style={{ flexDirection: 'column', alignItems: 'flex-start', gap: '12px' }}>
@@ -279,34 +284,38 @@ const ReportsView = ({ analytics }) => {
             <div className="metric-icon-box" style={{ width: '38px', height: '38px' }}><ImageIcon size={18} /></div>
           </div>
           <div>
-            <h3 style={{ fontSize: '28px', fontWeight: 700, color: 'var(--color-text-main)' }}>{totalImages.toLocaleString()}</h3>
+            <h3 style={{ fontSize: '28px', fontWeight: 700, color: 'var(--color-text-main)' }}>
+              <CountUp end={totalImages} duration={1000} />
+            </h3>
             <p style={{ fontSize: '12px', color: 'var(--color-text-muted)', marginTop: '4px' }}>Total images submitted by contributors.</p>
           </div>
           <div style={{ width: '100%', borderTop: '1px solid var(--color-border)', paddingTop: '8px', marginTop: '4px', display: 'flex', gap: '16px', fontSize: '12px' }}>
-            <span><strong>{totalUsers}</strong> Users</span>
-            <span><strong>{totalAnnotations}</strong> Object Annotations</span>
+            <span><strong><CountUp end={totalUsers} duration={800} /></strong> Users</span>
+            <span><strong><CountUp end={totalAnnotations} duration={800} /></strong> Object Annotations</span>
           </div>
         </div>
 
         {/* Validation Funnel Card */}
-        <div className="metric-card" style={{ flexDirection: 'column', alignItems: 'flex-start', gap: '12px' }}>
+        <div ref={funnelRef} className="metric-card" style={{ flexDirection: 'column', alignItems: 'flex-start', gap: '12px' }}>
           <div style={{ display: 'flex', justifyContent: 'space-between', width: '100%' }}>
             <span style={{ fontSize: '13px', fontWeight: 600, color: 'var(--color-text-muted)' }}>VALIDATION FUNNEL</span>
             <div className="metric-icon-box" style={{ width: '38px', height: '38px', color: '#10b981', backgroundColor: '#ecfdf5' }}><CheckCircle size={18} /></div>
           </div>
           <div>
-            <h3 style={{ fontSize: '28px', fontWeight: 700, color: '#10b981' }}>{validationRate}%</h3>
+            <h3 style={{ fontSize: '28px', fontWeight: 700, color: '#10b981' }}>
+              <CountUp end={validationRate} decimals={1} suffix="%" duration={1000} />
+            </h3>
             <p style={{ fontSize: '12px', color: 'var(--color-text-muted)', marginTop: '4px' }}>Approved dataset classification rate.</p>
           </div>
           <div style={{ width: '100%', height: '6px', backgroundColor: '#f1f5f9', borderRadius: '3px', display: 'flex', overflow: 'hidden', margin: '4px 0' }}>
-            <div style={{ background: '#10b981', width: `${validationRate}%` }} />
-            <div style={{ background: '#f97316', width: `${pendingRate}%` }} />
-            <div style={{ background: '#ef4444', width: `${rejectionRate}%` }} />
+            <div style={{ background: '#10b981', width: funnelInView ? `${validationRate}%` : '0%', transition: 'width 1s cubic-bezier(0.34, 1.56, 0.64, 1)' }} />
+            <div style={{ background: '#f97316', width: funnelInView ? `${pendingRate}%` : '0%', transition: 'width 1s cubic-bezier(0.34, 1.56, 0.64, 1)' }} />
+            <div style={{ background: '#ef4444', width: funnelInView ? `${rejectionRate}%` : '0%', transition: 'width 1s cubic-bezier(0.34, 1.56, 0.64, 1)' }} />
           </div>
           <div style={{ width: '100%', display: 'flex', justifyContent: 'space-between', fontSize: '11px', color: 'var(--color-text-muted)' }}>
-            <span>Approved: {validatedImages}</span>
-            <span>Pending: {pendingImages}</span>
-            <span>Rejected: {rejectedImages}</span>
+            <span>Approved: <CountUp end={validatedImages} duration={800} /></span>
+            <span>Pending: <CountUp end={pendingImages} duration={800} /></span>
+            <span>Rejected: <CountUp end={rejectedImages} duration={800} /></span>
           </div>
         </div>
 
@@ -321,7 +330,7 @@ const ReportsView = ({ analytics }) => {
             <p style={{ fontSize: '12px', color: 'var(--color-text-muted)', marginTop: '4px' }}>Active ML Waste Classification Model.</p>
           </div>
           <div style={{ width: '100%', borderTop: '1px solid var(--color-border)', paddingTop: '8px', marginTop: '4px', display: 'flex', justifyContent: 'space-between', fontSize: '12px' }}>
-            <span>mAP50 Accuracy: <strong>94.6%</strong></span>
+            <span>mAP50 Accuracy: <strong><CountUp end={94.6} decimals={1} suffix="%" duration={1000} /></strong></span>
             <span style={{ color: '#10b981', fontWeight: 600 }}>Active production model</span>
           </div>
         </div>
@@ -330,8 +339,8 @@ const ReportsView = ({ analytics }) => {
       {/* Main Breakdown Section */}
       <section className="dashboard-grid">
         
-        {/* Category Breakdown (Class Distribution) */}
-        <div className="dashboard-card" style={{ padding: '28px' }}>
+        {/* Category Breakdown (Class Distribution with Scroll Growth Animation) */}
+        <div ref={categoriesRef} className="dashboard-card" style={{ padding: '28px' }}>
           <div className="card-header-flex">
             <h2 className="card-title" style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
               <Layers size={18} style={{ color: 'var(--color-primary)' }} />
@@ -345,9 +354,8 @@ const ReportsView = ({ analytics }) => {
 
           <div style={{ display: 'flex', flexDirection: 'column', gap: '20px' }}>
             {categoryBreakdown.map((cat, idx) => {
-              const catPct = totalCategoryImages > 0 ? ((cat.count / totalCategoryImages) * 100).toFixed(1) : 0;
+              const catPct = totalCategoryImages > 0 ? parseFloat(((cat.count / totalCategoryImages) * 100).toFixed(1)) : 0;
               
-              // Map class colors
               let color = '#3b82f6';
               if (cat.category.toLowerCase() === 'plastic') color = 'var(--color-primary)';
               if (cat.category.toLowerCase() === 'paper') color = '#f59e0b';
@@ -361,11 +369,19 @@ const ReportsView = ({ analytics }) => {
                       <span style={{ width: '10px', height: '10px', borderRadius: '50%', backgroundColor: color }} />
                       {cat.category}
                     </span>
-                    <span>{cat.count.toLocaleString()} images ({catPct}%)</span>
+                    <span>
+                      <CountUp end={cat.count} duration={1000} /> images (<CountUp end={catPct} decimals={1} suffix="%" duration={1000} />)
+                    </span>
                   </div>
                   
                   <div style={{ width: '100%', height: '10px', backgroundColor: '#f1f5f9', borderRadius: '5px', overflow: 'hidden' }}>
-                    <div style={{ height: '100%', backgroundColor: color, width: `${catPct}%`, borderRadius: '5px' }} />
+                    <div style={{
+                      height: '100%',
+                      backgroundColor: color,
+                      width: categoriesInView ? `${catPct}%` : '0%',
+                      borderRadius: '5px',
+                      transition: `width 1s cubic-bezier(0.34, 1.56, 0.64, 1) ${idx * 100}ms`
+                    }} />
                   </div>
                 </div>
               );
@@ -388,40 +404,39 @@ const ReportsView = ({ analytics }) => {
 
           <div style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
             
-            {/* Status list */}
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '12px 16px', background: '#f8fafc', borderRadius: '8px' }}>
               <div style={{ display: 'flex', alignItems: 'center', gap: '8px', color: '#10b981', fontWeight: 600 }}>
                 <CheckCircle size={16} /> Completed Jobs
               </div>
-              <span style={{ fontWeight: 700 }}>{statusCounts.completed || 0}</span>
+              <span style={{ fontWeight: 700 }}><CountUp end={statusCounts.completed || 0} duration={800} /></span>
             </div>
 
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '12px 16px', background: '#f8fafc', borderRadius: '8px' }}>
               <div style={{ display: 'flex', alignItems: 'center', gap: '8px', color: '#3b82f6', fontWeight: 600 }}>
                 <Clock size={16} /> Running / Training
               </div>
-              <span style={{ fontWeight: 700 }}>{statusCounts.running || statusCounts.training || 0}</span>
+              <span style={{ fontWeight: 700 }}><CountUp end={statusCounts.running || statusCounts.training || 0} duration={800} /></span>
             </div>
 
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '12px 16px', background: '#f8fafc', borderRadius: '8px' }}>
               <div style={{ display: 'flex', alignItems: 'center', gap: '8px', color: '#f59e0b', fontWeight: 600 }}>
                 <Clock size={16} /> Pending in Queue
               </div>
-              <span style={{ fontWeight: 700 }}>{statusCounts.pending || 0}</span>
+              <span style={{ fontWeight: 700 }}><CountUp end={statusCounts.pending || 0} duration={800} /></span>
             </div>
 
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '12px 16px', background: '#f8fafc', borderRadius: '8px' }}>
               <div style={{ display: 'flex', alignItems: 'center', gap: '8px', color: '#ef4444', fontWeight: 600 }}>
                 <AlertTriangle size={16} /> Failed Training
               </div>
-              <span style={{ fontWeight: 700 }}>{statusCounts.failed || 0}</span>
+              <span style={{ fontWeight: 700 }}><CountUp end={statusCounts.failed || 0} duration={800} /></span>
             </div>
 
             {/* Average Duration Box */}
             <div style={{ border: '1.5px dashed var(--color-border)', borderRadius: '12px', padding: '16px', textAlign: 'center', marginTop: '8px' }}>
               <span style={{ fontSize: '12px', color: 'var(--color-text-muted)', fontWeight: 600, display: 'block', textTransform: 'uppercase', letterSpacing: '0.5px' }}>Avg. Training Speed</span>
               <span style={{ fontSize: '22px', fontWeight: 700, color: 'var(--color-text-main)', display: 'block', margin: '4px 0' }}>
-                {avgTrainingDuration > 0 ? `${avgTrainingDuration.toFixed(1)} mins` : 'N/A'}
+                {avgTrainingDuration > 0 ? <CountUp end={avgTrainingDuration} decimals={1} suffix=" mins" duration={1000} /> : 'N/A'}
               </span>
               <p style={{ fontSize: '11px', color: 'var(--color-text-muted)' }}>Computed across all completed pipeline executions.</p>
             </div>

@@ -3,94 +3,109 @@ from sqlalchemy.orm import Session
 from pydantic import BaseModel
 
 from app.database import get_db
-from app.models.user import User
+from app.models.user import User, Admin
 from app.models.category import Category
 from app.models.image import Image
 from app.dependencies.auth import require_admin
-from app.schemas.schemas import CategoryCreate, MessageResponse
+from app.schemas.schemas import CategoryCreate, MessageResponse, SystemSettingUpdate, SystemSettingResponse
 from sqlalchemy import func
 from app.config import settings
 from app.schemas.schemas import UserLogin, TokenResponse
 from app.routes.auth import get_password_hash, verify_password
 from app.dependencies.auth import create_access_token, create_refresh_token
 
+from typing import Optional
+import os
+import logging
+
+logger = logging.getLogger(__name__)
+
 router = APIRouter()
 
 @router.post("/login", response_model=TokenResponse)
 def admin_login(login_in: UserLogin, db: Session = Depends(get_db)):
-    """Authenticate Admin using secure environment configuration and return JWT."""
+    """Authenticate Admin using the admins database table & secure environment configuration."""
     req_email = login_in.email.strip().lower()
+    plain_pw = login_in.password.strip()
     admin_email = settings.ADMIN_EMAIL.strip().lower()
     admin_password = settings.ADMIN_PASSWORD.strip()
     
-    print(f"[DEBUG_LOGIN] Input email: '{req_email}' | Config email: '{admin_email}'")
-    print(f"[DEBUG_LOGIN] Input password: '{login_in.password.strip()}' | Config password: '{admin_password}'")
+    # Query admins table ONLY
+    admin_rec = db.query(Admin).filter(func.lower(Admin.admin_email) == req_email).first()
     
-    if req_email != admin_email or login_in.password.strip() != admin_password:
+    is_valid = False
+    if req_email == admin_email and plain_pw == admin_password:
+        is_valid = True
+    elif admin_rec and verify_password(plain_pw, admin_rec.hash_password):
+        is_valid = True
+        
+    if not is_valid:
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="Invalid admin credentials",
         )
         
-    # Ensure admin exists in DB so downstream require_admin checks succeed
-    user = db.query(User).filter(func.lower(User.email) == req_email).first()
-    if not user:
-        user = User(
-            email=admin_email,
-            password_hash=get_password_hash(admin_password),
-            full_name="System Admin",
-            role="admin",
+    # Ensure record exists in admins table ONLY
+    if not admin_rec:
+        admin_rec = Admin(
+            admin_email=req_email,
+            admin_name="System Admin",
+            hash_password=get_password_hash(plain_pw),
             is_email_verified=True,
         )
-        db.add(user)
+        db.add(admin_rec)
         db.commit()
-        db.refresh(user)
-    else:
-        needs_update = False
-        if user.role != "admin":
-            user.role = "admin"
-            needs_update = True
-        if not verify_password(admin_password, user.password_hash):
-            user.password_hash = get_password_hash(admin_password)
-            needs_update = True
-        if needs_update:
-            db.commit()
-            db.refresh(user)
+        db.refresh(admin_rec)
+
+    # Clean up any legacy admin rows from users table so users table contains no admin data
+    legacy_user = db.query(User).filter(func.lower(User.email) == req_email).first()
+    if legacy_user:
+        db.delete(legacy_user)
+        db.commit()
             
-    access_token = create_access_token(identity=user.user_id, role=user.role)
-    refresh_token = create_refresh_token(identity=user.user_id)
+    access_token = create_access_token(identity=admin_rec.admin_id, role="admin")
+    refresh_token = create_refresh_token(identity=admin_rec.admin_id)
     
     return {
         "message": "Admin login successful",
         "access_token": access_token,
         "refresh_token": refresh_token,
-        "user_id": user.user_id,
-        "role": user.role,
+        "user_id": admin_rec.admin_id,
+        "role": "admin",
     }
 
 class CreateAdminRequest(BaseModel):
-    admin_id: str
     email: str
-    role: str
+    password: Optional[str] = None
+    confirm_password: Optional[str] = None
+    admin_id: Optional[str] = None
+    role: str = "Admin"
 
 @router.post("/create", response_model=dict, status_code=status.HTTP_201_CREATED)
-def create_admin(request_in: CreateAdminRequest, current_admin: User = Depends(require_admin), db: Session = Depends(get_db)):
-    """Register a new admin user in the system (requires admin authentication)."""
+def create_admin(request_in: CreateAdminRequest, current_admin = Depends(require_admin), db: Session = Depends(get_db)):
+    """Register a new admin user in the system (stored in admins table ONLY)."""
     email_clean = request_in.email.strip().lower()
+    password_clean = (request_in.password or "ZWMAdmin123!").strip()
+
+    if request_in.confirm_password and password_clean != request_in.confirm_password.strip():
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Password and confirm password do not match",
+        )
     
-    existing = db.query(User).filter(func.lower(User.email) == email_clean).first()
+    # Check if admin already exists in admins table
+    existing = db.query(Admin).filter(func.lower(Admin.admin_email) == email_clean).first()
     if existing:
         raise HTTPException(
             status_code=status.HTTP_409_CONFLICT,
-            detail="A user or admin with this email already exists",
+            detail="An admin with this email already exists",
         )
         
-    temp_password = "ZWMAdmin123!"
-    new_admin = User(
-        email=email_clean,
-        password_hash=get_password_hash(temp_password),
-        full_name=request_in.admin_id.strip(),
-        role="admin",
+    admin_name = request_in.admin_id.strip() if request_in.admin_id else email_clean.split('@')[0].capitalize()
+    new_admin = Admin(
+        admin_email=email_clean,
+        admin_name=admin_name,
+        hash_password=get_password_hash(password_clean),
         is_email_verified=True,
     )
     db.add(new_admin)
@@ -99,10 +114,11 @@ def create_admin(request_in: CreateAdminRequest, current_admin: User = Depends(r
     
     return {
         "message": "Admin created successfully",
-        "user_id": new_admin.user_id,
-        "email": new_admin.email,
+        "admin_id": new_admin.admin_id,
+        "user_id": new_admin.admin_id,
+        "email": new_admin.admin_email,
         "role": request_in.role,
-        "temp_password": temp_password,
+        "temp_password": password_clean,
     }
 
 
@@ -111,9 +127,24 @@ class ImageApproveRequest(BaseModel):
 
 @router.get("/categories", response_model=dict)
 def get_categories(admin: User = Depends(require_admin), db: Session = Depends(get_db)):
-    categories = db.query(Category).all()
-    results = [{"id": c.category_id, "name": c.class_name, "code": c.class_code, "validated_count": c.validated_count} for c in categories]
+    categories = db.query(Category).order_by(Category.class_name.asc()).all()
+    results = [
+        {
+            "id": c.category_id,
+            "category_id": c.category_id,
+            "name": c.class_name,
+            "class_name": c.class_name,
+            "code": c.class_code,
+            "class_code": c.class_code,
+            "description": c.description,
+            "is_active": c.is_active,
+            "validated_count": c.validated_count or 0,
+            "total_images": db.query(Image).filter(Image.selected_category_id == c.category_id).count()
+        }
+        for c in categories
+    ]
     return {"categories": results}
+
 
 @router.post("/categories", response_model=dict, status_code=status.HTTP_201_CREATED)
 def create_category(category_in: CategoryCreate, admin: User = Depends(require_admin), db: Session = Depends(get_db)):
@@ -126,32 +157,132 @@ def create_category(category_in: CategoryCreate, admin: User = Depends(require_a
 
     new_category = Category(
         class_name=category_in.class_name,
-        class_code=category_in.class_code
+        class_code=category_in.class_code,
+        description=category_in.description,
+        is_active=category_in.is_active if category_in.is_active is not None else True
     )
     db.add(new_category)
     db.commit()
     db.refresh(new_category)
     
-    return {"message": "Category created", "category_id": new_category.category_id}
+    # Auto-create dataset folder structure: uploads/dataset/{category_slug}/images & labels
+    try:
+        from app.services.lifecycle_service import slugify_category_name
+        from app.config import settings
+        slug = slugify_category_name(new_category.class_name)
+        cat_dir = os.path.join(settings.UPLOAD_FOLDER, "dataset", slug)
+        os.makedirs(os.path.join(cat_dir, "images"), exist_ok=True)
+        os.makedirs(os.path.join(cat_dir, "labels"), exist_ok=True)
+    except Exception as exc:
+        logger.warning(f"Could not auto-create dataset directory for category '{new_category.class_name}': {exc}")
+
+    return {
+        "message": "Category created successfully",
+        "category_id": new_category.category_id,
+        "class_name": new_category.class_name,
+        "is_active": new_category.is_active
+    }
+
+
+from app.schemas.schemas import CategoryUpdate
+
+@router.patch("/categories/{category_id}", response_model=dict)
+def update_category(category_id: int, category_in: CategoryUpdate, admin: User = Depends(require_admin), db: Session = Depends(get_db)):
+    category = db.query(Category).filter(Category.category_id == category_id).first()
+    if not category:
+        raise HTTPException(status_code=404, detail="Category not found")
+
+    if category_in.class_name is not None:
+        category.class_name = category_in.class_name
+    if category_in.class_code is not None:
+        category.class_code = category_in.class_code
+    if category_in.description is not None:
+        category.description = category_in.description
+    if category_in.is_active is not None:
+        category.is_active = category_in.is_active
+
+    db.commit()
+    db.refresh(category)
+    return {
+        "message": "Category updated successfully",
+        "category_id": category.category_id,
+        "is_active": category.is_active
+    }
+
+
+@router.delete("/categories/{category_id}", response_model=dict)
+def delete_category(category_id: int, admin: User = Depends(require_admin), db: Session = Depends(get_db)):
+    category = db.query(Category).filter(Category.category_id == category_id).first()
+    if not category:
+        raise HTTPException(status_code=404, detail="Category not found")
+
+    cat_name = category.class_name
+    from app.services.lifecycle_service import slugify_category_name
+    from app.models.annotation import Annotation
+
+    category_slug = slugify_category_name(cat_name)
+
+    # Safely clear FK references from annotations and images before deletion
+    db.query(Annotation).filter(Annotation.category_id == category_id).update({"category_id": None}, synchronize_session=False)
+    db.query(Image).filter(Image.selected_category_id == category_id).update({"selected_category_id": None}, synchronize_session=False)
+
+    db.delete(category)
+    db.commit()
+
+    # Delete corresponding folder from uploads/dataset/{category_slug}
+    try:
+        cat_dir = os.path.join(settings.UPLOAD_FOLDER, "dataset", category_slug)
+        if os.path.exists(cat_dir):
+            import shutil
+            shutil.rmtree(cat_dir, ignore_errors=True)
+            logger.info(f"Deleted dataset folder for category '{cat_name}' at {cat_dir}")
+    except Exception as exc:
+        logger.warning(f"Could not delete dataset directory for category '{cat_name}': {exc}")
+
+    return {
+        "message": f"Category '{cat_name}' deleted successfully",
+        "category_id": category_id
+    }
 
 
 @router.get("/users", response_model=dict)
+@router.get("/users/contributions", response_model=dict)
 def list_users(admin: User = Depends(require_admin), db: Session = Depends(get_db)):
+    """Fetch user contribution statistics using PostgreSQL aggregate queries."""
     users = db.query(User).all()
-    results = [{
-        "user_id": u.user_id,
-        "email": u.email,
-        "role": u.role,
-        "image_count": u.image_count,
-        "reward_points": u.reward_points
-    } for u in users]
+    results = []
+    
+    for u in users:
+        total_uploads = db.query(Image).filter(Image.user_id == u.user_id).count()
+        approved_count = db.query(Image).filter(Image.user_id == u.user_id, Image.status == "approved").count()
+        rejected_count = db.query(Image).filter(Image.user_id == u.user_id, Image.status == "rejected").count()
+        pending_count = db.query(Image).filter(Image.user_id == u.user_id, Image.status == "uploaded").count()
+        needs_review_count = db.query(Image).filter(Image.user_id == u.user_id, Image.status == "pending_admin_review").count()
+
+        results.append({
+            "user_id": u.user_id,
+            "email": u.email,
+            "full_name": u.full_name or u.email.split("@")[0],
+            "role": u.role,
+            "image_count": u.image_count or total_uploads,
+            "reward_points": u.reward_points or 0,
+            "stats": {
+                "total_uploads": total_uploads,
+                "approved": approved_count,
+                "rejected": rejected_count,
+                "pending": pending_count,
+                "needs_review": needs_review_count
+            }
+        })
+        
     return {"users": results}
+
 
 @router.get("/validation-queue", response_model=dict)
 def get_validation_queue(admin: User = Depends(require_admin), db: Session = Depends(get_db)):
     images = (
         db.query(Image)
-        .filter(Image.status == "uploaded", Image.is_validated == False)
+        .filter(Image.status.in_(["uploaded", "pending_admin_review"]) | (Image.is_validated == False))
         .order_by(Image.uploaded_at.desc())
         .all()
     )
@@ -159,8 +290,12 @@ def get_validation_queue(admin: User = Depends(require_admin), db: Session = Dep
     results = []
     for img in images:
         uploader = db.query(User).filter(User.user_id == img.user_id).first()
-        uploader_email = uploader.email if uploader else "Unknown"
-        
+        uploader_email = uploader.email if uploader else "Unknown User"
+        uploader_name = uploader.full_name if (uploader and uploader.full_name) else uploader_email
+
+        selected_cat = db.query(Category).filter(Category.category_id == img.selected_category_id).first() if img.selected_category_id else None
+        selected_category_name = selected_cat.class_name if selected_cat else "Unspecified"
+
         # Gather annotations
         img_annotations = []
         for ann in img.annotations:
@@ -177,12 +312,24 @@ def get_validation_queue(admin: User = Depends(require_admin), db: Session = Dep
         results.append({
             "image_id": img.image_id,
             "original_filename": img.original_filename,
+            "temp_s3_path": img.temp_s3_path,
             "uploaded_at": str(img.uploaded_at) if img.uploaded_at else None,
+            "uploader_user_id": img.user_id,
             "uploader_email": uploader_email,
+            "uploader_name": uploader_name,
+            "selected_category_id": img.selected_category_id,
+            "selected_category_name": selected_category_name,
+            "ai_predicted_category": img.ai_predicted_category,
+            "ai_confidence_score": img.ai_confidence_score,
+            "validation_result": img.validation_result or ("AUTO_ACCEPTED" if img.status == "approved" else "NEEDS_HUMAN_REVIEW"),
+            "validation_reason": img.validation_reason,
+            "status": img.status,
+            "is_validated": img.is_validated,
             "annotations": img_annotations
         })
         
     return {"queue": results}
+
 
 
 @router.post("/images/{image_id}/approve", response_model=MessageResponse)
@@ -299,12 +446,20 @@ def analytics_details(
     total_annotations = ann_query.count()
     
     category_counts = (
-        db.query(Category.class_name, func.count(func.distinct(Annotation.image_id)))
+        db.query(
+            Category.class_name,
+            func.greatest(
+                Category.validated_count,
+                func.count(func.distinct(Image.image_id)),
+                func.count(func.distinct(Annotation.image_id))
+            )
+        )
+        .outerjoin(Image, Category.category_id == Image.selected_category_id)
         .outerjoin(Annotation, Category.category_id == Annotation.category_id)
-        .group_by(Category.class_name)
+        .group_by(Category.category_id, Category.class_name, Category.validated_count)
         .all()
     )
-    category_stats = [{"category": row[0], "count": row[1]} for row in category_counts]
+    category_stats = [{"category": row[0], "count": int(row[1] or 0)} for row in category_counts]
     
     daily_uploads = (
         img_query.with_entities(func.date_trunc('day', Image.uploaded_at).label('day'), func.count(Image.image_id))
@@ -563,4 +718,46 @@ def get_system_health(admin: User = Depends(require_admin), db: Session = Depend
         "celery": celery_status,
         "ml_service": ml_status
     }
+
+
+# ---------------------------------------------------------------------------
+# System Settings Endpoints
+# ---------------------------------------------------------------------------
+
+from app.models.setting import SystemSetting
+
+@router.get("/settings", response_model=SystemSettingResponse)
+def get_system_settings(db: Session = Depends(get_db)):
+    """Fetch current system and ML pipeline settings."""
+    setting = db.query(SystemSetting).filter(SystemSetting.id == 1).first()
+    if not setting:
+        setting = SystemSetting(id=1)
+        db.add(setting)
+        db.commit()
+        db.refresh(setting)
+    return setting
+
+
+@router.put("/settings", response_model=SystemSettingResponse)
+def update_system_settings(
+    settings_in: SystemSettingUpdate,
+    db: Session = Depends(get_db)
+):
+    """Update system and ML pipeline settings in database."""
+    setting = db.query(SystemSetting).filter(SystemSetting.id == 1).first()
+    if not setting:
+        setting = SystemSetting(id=1)
+        db.add(setting)
+        db.commit()
+        db.refresh(setting)
+
+    update_data = settings_in.model_dump(exclude_unset=True)
+    for field, val in update_data.items():
+        if val is not None:
+            setattr(setting, field, val)
+
+    db.commit()
+    db.refresh(setting)
+    return setting
+
 

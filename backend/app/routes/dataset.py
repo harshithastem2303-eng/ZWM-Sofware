@@ -21,9 +21,10 @@ def get_dataset_stats(
     admin: User = Depends(require_admin),
     db: Session = Depends(get_db),
 ):
-    """Per-category validated image counts and overall dataset statistics."""
     categories = db.query(Category).all()
-    threshold = settings.CATEGORY_VALIDATED_THRESHOLD
+    from app.models.setting import SystemSetting
+    sys_setting = db.query(SystemSetting).filter(SystemSetting.id == 1).first()
+    threshold = sys_setting.auto_retrain_count if sys_setting else settings.CATEGORY_VALIDATED_THRESHOLD
 
     category_stats = []
     for cat in categories:
@@ -57,10 +58,14 @@ def check_dataset_readiness(
 ):
     """Check if all categories have enough validated images to trigger training."""
     from app.services.training_service import check_dataset_readiness as check_ready
+    from app.models.setting import SystemSetting
+
+    sys_setting = db.query(SystemSetting).filter(SystemSetting.id == 1).first()
+    threshold = sys_setting.auto_retrain_count if sys_setting else settings.CATEGORY_VALIDATED_THRESHOLD
 
     ready, stats = check_ready(db)
     return {
         "ready": ready,
-        "threshold": settings.CATEGORY_VALIDATED_THRESHOLD,
+        "threshold": threshold,
         "categories": stats,
     }

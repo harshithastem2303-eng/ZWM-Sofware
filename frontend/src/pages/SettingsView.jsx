@@ -1,5 +1,6 @@
-import React, { useState } from 'react';
-import { Save, Sliders, Globe, ShieldAlert, Check } from 'lucide-react';
+import React, { useState, useEffect } from 'react';
+import { Save, Sliders, Globe, Check, AlertCircle } from 'lucide-react';
+import { fetchSystemSettings, updateSystemSettings } from '../services/api';
 
 const SettingsView = () => {
   // General State
@@ -20,25 +21,73 @@ const SettingsView = () => {
   const [learningRate, setLearningRate] = useState(0.01);
   const [autoTrainToggle, setAutoTrainToggle] = useState(true);
 
-  // Security State
-  const [sessionTimeout, setSessionTimeout] = useState(30);
-  const [twoFactorAuth, setTwoFactorAuth] = useState(false);
-
   // Form submit state
+  const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [successMsg, setSuccessMsg] = useState('');
+  const [errorMsg, setErrorMsg] = useState('');
 
-  const handleSave = (e) => {
+  useEffect(() => {
+    const loadSettings = async () => {
+      try {
+        const data = await fetchSystemSettings();
+        if (data) {
+          if (data.platform_name) setPlatformName(data.platform_name);
+          if (data.admin_email) setAdminEmail(data.admin_email);
+          if (data.api_base_url) setApiBaseUrl(data.api_base_url);
+          if (data.maintenance_mode !== undefined) setMaintenanceMode(data.maintenance_mode);
+          if (data.active_model) setActiveModel(data.active_model);
+          if (data.epochs) setEpochs(data.epochs);
+          if (data.image_size) setImageSize(data.image_size);
+          if (data.batch_size) setBatchSize(data.batch_size);
+          if (data.confidence_threshold !== undefined) setConfidenceThreshold(data.confidence_threshold);
+          if (data.auto_retrain_count) setAutoRetrainCount(data.auto_retrain_count);
+          if (data.device) setDevice(data.device);
+          if (data.optimizer) setOptimizer(data.optimizer);
+          if (data.learning_rate) setLearningRate(data.learning_rate);
+          if (data.auto_train_toggle !== undefined) setAutoTrainToggle(data.auto_train_toggle);
+        }
+      } catch (err) {
+        console.warn('Backend settings fetch note:', err.message);
+      } finally {
+        setLoading(false);
+      }
+    };
+    loadSettings();
+  }, []);
+
+  const handleSave = async (e) => {
     e.preventDefault();
     setSaving(true);
     setSuccessMsg('');
-    
-    // Simulate API delay
-    setTimeout(() => {
-      setSaving(false);
-      setSuccessMsg('All SaaS and machine learning parameters updated successfully!');
+    setErrorMsg('');
+
+    try {
+      const payload = {
+        platform_name: platformName,
+        admin_email: adminEmail,
+        api_base_url: apiBaseUrl,
+        maintenance_mode: maintenanceMode,
+        active_model: activeModel,
+        epochs: parseInt(epochs) || 50,
+        image_size: imageSize,
+        batch_size: parseInt(batchSize) || 16,
+        device: device,
+        optimizer: optimizer,
+        learning_rate: parseFloat(learningRate) || 0.01,
+        auto_retrain_count: parseInt(autoRetrainCount) || 1000,
+        confidence_threshold: parseFloat(confidenceThreshold) || 0.65,
+        auto_train_toggle: autoTrainToggle,
+      };
+
+      await updateSystemSettings(payload);
+      setSuccessMsg('All SaaS and machine learning parameters saved to backend database successfully!');
       window.scrollTo({ top: 0, behavior: 'smooth' });
-    }, 1000);
+    } catch (err) {
+      setErrorMsg(err.message || 'Failed to save configuration settings to backend.');
+    } finally {
+      setSaving(false);
+    }
   };
 
   return (
@@ -47,10 +96,10 @@ const SettingsView = () => {
       {/* Page Heading */}
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: '28px' }}>
         <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
-          <h1 style={{ fontSize: '32px', fontWeight: 700, color: '#0F172A', fontFamily: 'var(--font-main)', lineHeight: '1.2' }}>
+          <h1 style={{ fontSize: '32px', fontWeight: 800, color: '#38240d', fontFamily: 'var(--font-main)', lineHeight: '1.2' }}>
             Settings
           </h1>
-          <p style={{ fontSize: '14px', fontWeight: 400, color: '#64748B', fontFamily: 'var(--font-main)' }}>
+          <p style={{ fontSize: '14px', fontWeight: 400, color: '#786c5e', fontFamily: 'var(--font-main)' }}>
             Configure platform, dataset, and AI model settings.
           </p>
         </div>
@@ -78,121 +127,79 @@ const SettingsView = () => {
         </div>
       )}
 
+      {/* Error Notification */}
+      {errorMsg && (
+        <div className="panel-alert panel-alert-error" style={{ padding: '16px', fontSize: '14px', display: 'flex', alignItems: 'center', gap: '8px', color: '#dc2626', backgroundColor: '#fef2f2', border: '1px solid #fecaca', borderRadius: '8px' }}>
+          <AlertCircle size={18} />
+          {errorMsg}
+        </div>
+      )}
+
       {/* SaaS Configuration Panels Grid */}
-      <div className="dashboard-grid">
+      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1.2fr', gap: '24px', alignItems: 'start' }}>
         
-        {/* Left Column: General & Security */}
-        <div style={{ display: 'flex', flexDirection: 'column', gap: '24px' }}>
-          
-          {/* Panel 1: General Platform Information */}
-          <div className="dashboard-card" style={{ padding: '28px', display: 'flex', flexDirection: 'column', gap: '20px' }}>
-            <h3 style={{ fontSize: '16px', fontWeight: 700, borderBottom: '1.5px solid var(--color-border)', paddingBottom: '12px', display: 'flex', alignItems: 'center', gap: '8px' }}>
-              <Globe size={18} style={{ color: 'var(--color-primary)' }} />
-              General Information
-            </h3>
+        {/* Left Column: General Platform Information */}
+        <div className="dashboard-card" style={{ padding: '28px', display: 'flex', flexDirection: 'column', gap: '20px', height: 'fit-content' }}>
+          <h3 style={{ fontSize: '16px', fontWeight: 700, borderBottom: '1.5px solid var(--color-border)', paddingBottom: '12px', display: 'flex', alignItems: 'center', gap: '8px' }}>
+            <Globe size={18} style={{ color: 'var(--color-primary)' }} />
+            General Information
+          </h3>
 
-            <div className="panel-input-group">
-              <label className="panel-label">Platform Title</label>
-              <input
-                type="text"
-                className="panel-input"
-                value={platformName}
-                onChange={(e) => setPlatformName(e.target.value)}
-              />
-            </div>
-
-            <div className="panel-input-group">
-              <label className="panel-label">System Administrator Email</label>
-              <input
-                type="email"
-                className="panel-input"
-                value={adminEmail}
-                onChange={(e) => setAdminEmail(e.target.value)}
-              />
-            </div>
-
-            <div className="panel-input-group">
-              <label className="panel-label">FastAPI Base URL</label>
-              <input
-                type="text"
-                className="panel-input"
-                value={apiBaseUrl}
-                onChange={(e) => setApiBaseUrl(e.target.value)}
-              />
-            </div>
-
-            {/* Maintenance Mode Toggle Switch */}
-            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '8px 0', marginTop: '4px' }}>
-              <div>
-                <span style={{ fontSize: '14px', fontWeight: 600, color: 'var(--color-text-main)' }}>Platform Maintenance Mode</span>
-                <p style={{ fontSize: '11px', color: 'var(--color-text-muted)', marginTop: '2px' }}>Lock access to uploader endpoints during platform upgrades.</p>
-              </div>
-              <label style={{ position: 'relative', display: 'inline-block', width: '50px', height: '26px' }}>
-                <input
-                  type="checkbox"
-                  style={{ opacity: 0, width: 0, height: 0 }}
-                  checked={maintenanceMode}
-                  onChange={(e) => setMaintenanceMode(e.target.checked)}
-                />
-                <span style={{
-                  position: 'absolute', cursor: 'pointer', top: 0, left: 0, right: 0, bottom: 0,
-                  backgroundColor: maintenanceMode ? 'var(--color-primary)' : '#cbd5e1',
-                  transition: '.4s', borderRadius: '34px'
-                }}>
-                  <span style={{
-                    position: 'absolute', content: '""', height: '18px', width: '18px', left: maintenanceMode ? '28px' : '4px', bottom: '4px',
-                    backgroundColor: 'white', transition: '.4s', borderRadius: '50%'
-                  }} />
-                </span>
-              </label>
-            </div>
+          <div className="panel-input-group">
+            <label className="panel-label">Platform Title</label>
+            <input
+              type="text"
+              className="panel-input"
+              value={platformName}
+              onChange={(e) => setPlatformName(e.target.value)}
+            />
           </div>
 
-          {/* Panel 2: Security Control */}
-          <div className="dashboard-card" style={{ padding: '28px', display: 'flex', flexDirection: 'column', gap: '20px' }}>
-            <h3 style={{ fontSize: '16px', fontWeight: 700, borderBottom: '1.5px solid var(--color-border)', paddingBottom: '12px', display: 'flex', alignItems: 'center', gap: '8px' }}>
-              <ShieldAlert size={18} style={{ color: '#ef4444' }} />
-              Security & Controls
-            </h3>
-
-            <div className="panel-input-group">
-              <label className="panel-label">Session Idle Timeout (Minutes)</label>
-              <input
-                type="number"
-                className="panel-input"
-                value={sessionTimeout}
-                onChange={(e) => setSessionTimeout(parseInt(e.target.value) || 5)}
-              />
-              <span style={{ fontSize: '11px', color: 'var(--color-text-muted)' }}>Automatically log out inactive admins after this timeout.</span>
-            </div>
-
-            {/* Enforce 2FA toggle */}
-            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '8px 0', marginTop: '6px' }}>
-              <div>
-                <span style={{ fontSize: '14px', fontWeight: 600, color: 'var(--color-text-main)' }}>Enforce Admin Two-Factor Auth</span>
-                <p style={{ fontSize: '11px', color: 'var(--color-text-muted)', marginTop: '2px' }}>Require authenticator code on admin console logins.</p>
-              </div>
-              <label style={{ position: 'relative', display: 'inline-block', width: '50px', height: '26px' }}>
-                <input
-                  type="checkbox"
-                  style={{ opacity: 0, width: 0, height: 0 }}
-                  checked={twoFactorAuth}
-                  onChange={(e) => setTwoFactorAuth(e.target.checked)}
-                />
-                <span style={{
-                  position: 'absolute', cursor: 'pointer', top: 0, left: 0, right: 0, bottom: 0,
-                  backgroundColor: twoFactorAuth ? 'var(--color-primary)' : '#cbd5e1',
-                  transition: '.4s', borderRadius: '34px'
-                }}>
-                  <span style={{
-                    position: 'absolute', content: '""', height: '18px', width: '18px', left: twoFactorAuth ? '28px' : '4px', bottom: '4px',
-                    backgroundColor: 'white', transition: '.4s', borderRadius: '50%'
-                  }} />
-                </span>
-              </label>
-            </div>
+          <div className="panel-input-group">
+            <label className="panel-label">System Administrator Email</label>
+            <input
+              type="email"
+              className="panel-input"
+              value={adminEmail}
+              onChange={(e) => setAdminEmail(e.target.value)}
+            />
           </div>
 
+          <div className="panel-input-group">
+            <label className="panel-label">FastAPI Base URL</label>
+            <input
+              type="text"
+              className="panel-input"
+              value={apiBaseUrl}
+              onChange={(e) => setApiBaseUrl(e.target.value)}
+            />
+          </div>
+
+          {/* Maintenance Mode Toggle Switch */}
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '8px 0', marginTop: '4px' }}>
+            <div>
+              <span style={{ fontSize: '14px', fontWeight: 600, color: 'var(--color-text-main)' }}>Platform Maintenance Mode</span>
+              <p style={{ fontSize: '11px', color: 'var(--color-text-muted)', marginTop: '2px' }}>Lock access to uploader endpoints during platform upgrades.</p>
+            </div>
+            <label style={{ position: 'relative', display: 'inline-block', width: '50px', height: '26px' }}>
+              <input
+                type="checkbox"
+                style={{ opacity: 0, width: 0, height: 0 }}
+                checked={maintenanceMode}
+                onChange={(e) => setMaintenanceMode(e.target.checked)}
+              />
+              <span style={{
+                position: 'absolute', cursor: 'pointer', top: 0, left: 0, right: 0, bottom: 0,
+                backgroundColor: maintenanceMode ? 'var(--color-primary)' : '#cbd5e1',
+                transition: '.4s', borderRadius: '34px'
+              }}>
+                <span style={{
+                  position: 'absolute', content: '""', height: '18px', width: '18px', left: maintenanceMode ? '28px' : '4px', bottom: '4px',
+                  backgroundColor: 'white', transition: '.4s', borderRadius: '50%'
+                }} />
+              </span>
+            </label>
+          </div>
         </div>
 
         {/* Right Column: Machine Learning Pipeline */}

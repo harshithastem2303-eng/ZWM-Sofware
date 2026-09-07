@@ -4,6 +4,7 @@ from .category import Category
 from .image import Image
 from .training import ModelVersion, TrainingJob
 from .user import Admin, User, RewardTransaction
+from .setting import SystemSetting
 
 __all__ = [
     "Base",
@@ -15,4 +16,5 @@ __all__ = [
     "TrainingJob",
     "ModelVersion",
     "RewardTransaction",
+    "SystemSetting",
 ]

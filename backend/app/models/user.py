@@ -33,8 +33,10 @@ class User(Base):
         onupdate=lambda: datetime.now(timezone.utc),
     )
 
-    images = relationship("Image", backref="user", lazy=True, cascade="all, delete-orphan")
+    images = relationship("Image", foreign_keys="Image.user_id", backref="user", lazy=True, cascade="all, delete-orphan")
     annotations = relationship("Annotation", backref="annotator", lazy=True)
+
+
 
 
 class Admin(Base):

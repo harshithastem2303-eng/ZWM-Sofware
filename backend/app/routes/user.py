@@ -8,6 +8,7 @@ from app.dependencies.auth import get_current_user
 from app.schemas.schemas import UserProfile
 
 router = APIRouter()
+users_router = APIRouter()
 
 @router.get("/profile", response_model=UserProfile)
 def get_profile(current_user: User = Depends(get_current_user)):
@@ -64,3 +65,45 @@ def get_reward_history(current_user: User = Depends(get_current_user), db: Sessi
         for t in txs
     ]
     return {"history": results}
+
+@users_router.get("/me/dashboard", response_model=dict)
+def get_user_dashboard(current_user: User = Depends(get_current_user), db: Session = Depends(get_db)):
+    total_submissions = db.query(Image).filter(Image.user_id == current_user.user_id).count()
+
+    higher_users = db.query(User).filter(User.reward_points > current_user.reward_points).count()
+    rank = higher_users + 1
+
+    recent_imgs = (
+        db.query(Image)
+        .filter(Image.user_id == current_user.user_id)
+        .order_by(Image.uploaded_at.desc())
+        .limit(10)
+        .all()
+    )
+
+    recent_submissions = [
+        {
+            "id": img.image_id,
+            "filename": img.original_filename,
+            "status": img.status or "uploaded",
+            "is_validated": bool(img.is_validated),
+            "credits_awarded": img.credits_awarded or 0,
+            "uploaded_at": img.uploaded_at.isoformat() if img.uploaded_at else None,
+        }
+        for img in recent_imgs
+    ]
+
+    return {
+        "user": {
+            "id": current_user.user_id,
+            "email": current_user.email,
+            "full_name": current_user.full_name or ""
+        },
+        "stats": {
+            "total_submissions": total_submissions,
+            "points": current_user.reward_points or 0,
+            "rank": rank
+        },
+        "recent_submissions": recent_submissions
+    }
+

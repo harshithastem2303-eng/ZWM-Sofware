@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { fetchUsersList } from '../services/api';
 import { Search, Filter, Shield, Trophy, Image as ImageIcon, Award, Mail, ArrowUpDown } from 'lucide-react';
+import CountUp from '../components/CountUp';
 
 const UsersView = () => {
   const [users, setUsers] = useState([]);
@@ -60,7 +61,7 @@ const UsersView = () => {
   const adminCount = users.filter((u) => u.role === 'admin').length;
   const normalUserCount = totalCount - adminCount;
   const totalRewardPoints = users.reduce((sum, u) => sum + (u.reward_points || 0), 0);
-  const avgUploads = totalCount > 0 ? (users.reduce((sum, u) => sum + (u.image_count || 0), 0) / totalCount).toFixed(1) : 0;
+  const avgUploads = totalCount > 0 ? parseFloat((users.reduce((sum, u) => sum + (u.image_count || 0), 0) / totalCount).toFixed(1)) : 0;
 
   // Helper to determine contribution badges
   const getContributionBadge = (points) => {
@@ -94,15 +95,15 @@ const UsersView = () => {
       
       {/* Page Heading */}
       <div style={{ display: 'flex', flexDirection: 'column', gap: '8px', marginBottom: '28px' }}>
-        <h1 style={{ fontSize: '32px', fontWeight: 700, color: '#0F172A', fontFamily: 'var(--font-main)', lineHeight: '1.2' }}>
+        <h1 style={{ fontSize: '32px', fontWeight: 800, color: '#38240d', fontFamily: 'var(--font-main)', lineHeight: '1.2' }}>
           Users
         </h1>
-        <p style={{ fontSize: '14px', fontWeight: 400, color: '#64748B', fontFamily: 'var(--font-main)' }}>
+        <p style={{ fontSize: '14px', fontWeight: 400, color: '#786c5e', fontFamily: 'var(--font-main)' }}>
           Manage contributors, activity, and access across the platform.
         </p>
       </div>
 
-      {/* Users Metric Highlights */}
+      {/* Users Metric Highlights with Scroll CountUp Animations */}
       <section className="metrics-row">
         <div className="metric-card">
           <div className="metric-icon-box">
@@ -110,9 +111,11 @@ const UsersView = () => {
           </div>
           <div className="metric-content">
             <span className="metric-label">Total Registered Users</span>
-            <span className="metric-value">{totalCount}</span>
+            <span className="metric-value">
+              <CountUp end={totalCount} duration={1000} />
+            </span>
             <span className="metric-trend trend-up">
-              {normalUserCount} active uploaders
+              <CountUp end={normalUserCount} duration={800} /> active uploaders
             </span>
           </div>
         </div>
@@ -123,7 +126,9 @@ const UsersView = () => {
           </div>
           <div className="metric-content">
             <span className="metric-label">System Administrators</span>
-            <span className="metric-value">{adminCount}</span>
+            <span className="metric-value">
+              <CountUp end={adminCount} duration={1000} />
+            </span>
             <span className="metric-trend" style={{ color: 'var(--color-text-muted)', fontWeight: 500 }}>
               Full console access
             </span>
@@ -136,7 +141,9 @@ const UsersView = () => {
           </div>
           <div className="metric-content">
             <span className="metric-label">Avg. Images Uploaded</span>
-            <span className="metric-value">{avgUploads}</span>
+            <span className="metric-value">
+              <CountUp end={avgUploads} decimals={1} duration={1000} />
+            </span>
             <span className="metric-trend trend-up">
               per user database average
             </span>
@@ -149,9 +156,11 @@ const UsersView = () => {
           </div>
           <div className="metric-content">
             <span className="metric-label">Total Points Rewarded</span>
-            <span className="metric-value">{totalRewardPoints.toLocaleString()}</span>
+            <span className="metric-value">
+              <CountUp end={totalRewardPoints} duration={1000} />
+            </span>
             <span className="metric-trend trend-up" style={{ color: '#ca8a04' }}>
-              ✦ {totalCount > 0 ? Math.round(totalRewardPoints / totalCount) : 0} points avg.
+              ✦ <CountUp end={totalCount > 0 ? Math.round(totalRewardPoints / totalCount) : 0} duration={800} /> points avg.
             </span>
           </div>
         </div>
@@ -229,7 +238,6 @@ const UsersView = () => {
                   const maxTarget = Math.max(500, user.reward_points || 0);
                   const progressPct = Math.min(100, Math.round(((user.reward_points || 0) / maxTarget) * 100));
 
-                  // Initials dicebear SVG avatar generator seed
                   const avatarSeed = user.email.split('@')[0];
                   const avatarUrl = `https://api.dicebear.com/7.x/initials/svg?seed=${encodeURIComponent(avatarSeed)}&backgroundColor=bbf7d0,dcfce7,86efac,a7f3d0`;
 
@@ -278,10 +286,10 @@ const UsersView = () => {
                         </span>
                       </td>
                       <td style={{ padding: '16px', fontWeight: 600, color: 'var(--color-text-main)' }}>
-                        {user.image_count || 0} uploads
+                        <CountUp end={user.image_count || 0} suffix=" uploads" duration={800} />
                       </td>
                       <td style={{ padding: '16px', fontWeight: 700, color: 'var(--color-primary)' }}>
-                        {user.reward_points || 0} pts
+                        <CountUp end={user.reward_points || 0} suffix=" pts" duration={800} />
                       </td>
                       <td style={{ padding: '16px 20px' }}>
                         <div style={{ display: 'flex', flexDirection: 'column', gap: '6px', maxWidth: '180px' }}>

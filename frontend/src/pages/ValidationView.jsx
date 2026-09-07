@@ -153,15 +153,15 @@ const ValidationView = ({ refreshDashboardStats, setActiveTab }) => {
       {/* Page Heading */}
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: '28px' }}>
         <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
-          <h1 style={{ fontSize: '32px', fontWeight: 700, color: '#0F172A', fontFamily: 'var(--font-main)', lineHeight: '1.2' }}>
+          <h1 style={{ fontSize: '32px', fontWeight: 800, color: '#38240d', fontFamily: 'var(--font-main)', lineHeight: '1.2' }}>
             Validation
           </h1>
-          <p style={{ fontSize: '14px', fontWeight: 400, color: '#64748B', fontFamily: 'var(--font-main)' }}>
+          <p style={{ fontSize: '14px', fontWeight: 400, color: '#786c5e', fontFamily: 'var(--font-main)' }}>
             Review and approve submitted waste images before they enter the dataset.
           </p>
         </div>
         <div style={{ display: 'flex', gap: '8px', paddingTop: '4px' }}>
-          <span style={{ fontSize: '12px', background: 'var(--color-primary-light)', color: 'var(--color-primary)', padding: '6px 14px', borderRadius: '12px', fontWeight: 700 }}>
+          <span style={{ fontSize: '12px', background: '#fef3c7', border: '1px solid #fcd34d', color: '#92400e', padding: '6px 14px', borderRadius: '20px', fontWeight: 700 }}>
             {queue.length} Pending Validation
           </span>
         </div>
@@ -272,15 +272,56 @@ const ValidationView = ({ refreshDashboardStats, setActiveTab }) => {
                   <div style={{ background: '#f8fafc', padding: '16px', borderRadius: '14px', border: '1px solid var(--color-border)', display: 'flex', flexDirection: 'column', gap: '10px' }}>
                     <span style={{ fontSize: '11px', fontWeight: 700, color: 'var(--color-text-muted)', textTransform: 'uppercase', letterSpacing: '0.5px' }}>Uploader Telemetry</span>
                     <div style={{ display: 'flex', flexDirection: 'column', gap: '6px', fontSize: '13px' }}>
-                      <span style={{ color: 'var(--color-text-muted)' }}>Contributor: <strong style={{ color: 'var(--color-text-main)' }}>{selectedImage.uploader_email}</strong></span>
+                      <span style={{ color: 'var(--color-text-muted)' }}>Contributor: <strong style={{ color: 'var(--color-text-main)' }}>{selectedImage.uploader_name || selectedImage.uploader_email}</strong></span>
+                      <span style={{ color: 'var(--color-text-muted)' }}>Email: <strong style={{ color: 'var(--color-text-main)' }}>{selectedImage.uploader_email}</strong></span>
                       <span style={{ color: 'var(--color-text-muted)' }}>Uploaded: <strong style={{ color: 'var(--color-text-main)' }}>{selectedImage.uploaded_at ? new Date(selectedImage.uploaded_at).toLocaleString() : 'Unknown'}</strong></span>
+                    </div>
+                  </div>
+
+                  {/* AI Validation vs User Selected Category Card */}
+                  <div style={{ background: '#ffffff', padding: '16px', borderRadius: '14px', border: '1.5px solid var(--color-border)', display: 'flex', flexDirection: 'column', gap: '12px' }}>
+                    <span style={{ fontSize: '11px', fontWeight: 700, color: 'var(--color-text-muted)', textTransform: 'uppercase', letterSpacing: '0.5px' }}>Category & AI Match Analysis</span>
+                    
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: '8px', fontSize: '13px' }}>
+                      <div style={{ display: 'flex', justifyContent: 'space-between', padding: '8px 12px', background: '#f1f5f9', borderRadius: '8px' }}>
+                        <span style={{ color: 'var(--color-text-muted)', fontWeight: 600 }}>User Selected:</span>
+                        <strong style={{ color: '#0f172a' }}>{selectedImage.selected_category_name || 'Unspecified'}</strong>
+                      </div>
+                      
+                      <div style={{ display: 'flex', justifyContent: 'space-between', padding: '8px 12px', background: '#f1f5f9', borderRadius: '8px' }}>
+                        <span style={{ color: 'var(--color-text-muted)', fontWeight: 600 }}>AI Predicted:</span>
+                        <strong style={{ color: selectedImage.ai_predicted_category ? '#2563eb' : '#64748b' }}>
+                          {selectedImage.ai_predicted_category ? `${selectedImage.ai_predicted_category} (${(selectedImage.ai_confidence_score * 100).toFixed(1)}%)` : 'Not Detected / Unsupported'}
+                        </strong>
+                      </div>
+                    </div>
+
+                    {/* Result Badge */}
+                    <div style={{
+                      padding: '10px 12px',
+                      borderRadius: '8px',
+                      fontSize: '12px',
+                      fontWeight: 700,
+                      backgroundColor: selectedImage.validation_result === 'AUTO_ACCEPTED' ? '#f0fdf4' : selectedImage.validation_result === 'CLASS_MISMATCH' ? '#fef2f2' : '#fffbe6',
+                      color: selectedImage.validation_result === 'AUTO_ACCEPTED' ? '#15803d' : selectedImage.validation_result === 'CLASS_MISMATCH' ? '#b91c1c' : '#b45309',
+                      border: `1px solid ${selectedImage.validation_result === 'AUTO_ACCEPTED' ? '#bbf7d0' : selectedImage.validation_result === 'CLASS_MISMATCH' ? '#fecaca' : '#fef08a'}`,
+                      display: 'flex',
+                      flexDirection: 'column',
+                      gap: '4px'
+                    }}>
+                      <span>Result: {selectedImage.validation_result || 'PENDING_REVIEW'}</span>
+                      {selectedImage.validation_reason && (
+                        <span style={{ fontWeight: 400, fontSize: '11px', opacity: 0.9 }}>
+                          {selectedImage.validation_reason}
+                        </span>
+                      )}
                     </div>
                   </div>
 
                   {/* Annotations List */}
                   <div style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
-                    <span style={{ fontSize: '11px', fontWeight: 700, color: 'var(--color-text-muted)', textTransform: 'uppercase', letterSpacing: '0.5px' }}>Labeled Annotations ({selectedImage.annotations.length})</span>
-                    {selectedImage.annotations.length === 0 ? (
+                    <span style={{ fontSize: '11px', fontWeight: 700, color: 'var(--color-text-muted)', textTransform: 'uppercase', letterSpacing: '0.5px' }}>Labeled Annotations ({selectedImage.annotations ? selectedImage.annotations.length : 0})</span>
+                    {(!selectedImage.annotations || selectedImage.annotations.length === 0) ? (
                       <div style={{ fontSize: '13px', color: 'var(--color-text-muted)', fontStyle: 'italic', padding: '8px 4px' }}>
                         No bounding boxes annotated.
                       </div>
@@ -301,6 +342,7 @@ const ValidationView = ({ refreshDashboardStats, setActiveTab }) => {
                     )}
                   </div>
                 </div>
+
               </div>
             </div>
           )}

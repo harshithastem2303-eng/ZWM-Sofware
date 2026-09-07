@@ -40,18 +40,44 @@ def seed():
         db.commit()
 
         print("Ensuring main admin user exists...")
-        admin_user = db.query(User).filter(User.email == "zwm123@gmail.com").first()
+        admin_user = db.query(User).filter(User.email == "admin@gmail.com").first()
         if not admin_user:
             admin_user = User(
-                email="zwm123@gmail.com",
-                password_hash=get_password_hash("ZWMUSER123"),
-                full_name="Admin User",
+                email="admin@gmail.com",
+                password_hash=get_password_hash("user123"),
+                full_name="System Admin",
                 role="admin",
                 is_email_verified=True,
             )
             db.add(admin_user)
             db.commit()
             db.refresh(admin_user)
+
+        admin_user_alt = db.query(User).filter(User.email == "zwm123@gmail.com").first()
+        if not admin_user_alt:
+            admin_user_alt = User(
+                email="zwm123@gmail.com",
+                password_hash=get_password_hash("ZWMUSER123"),
+                full_name="Admin User",
+                role="admin",
+                is_email_verified=True,
+            )
+            db.add(admin_user_alt)
+            db.commit()
+
+        demo_user = db.query(User).filter(User.email == "demo@zwm.eco").first()
+        if not demo_user:
+            demo_user = User(
+                email="demo@zwm.eco",
+                password_hash=get_password_hash("User123!"),
+                full_name="Demo User",
+                role="user",
+                is_email_verified=True,
+                reward_points=250,
+                image_count=15,
+            )
+            db.add(demo_user)
+            db.commit()
 
         print("Seeding remaining users to reach 2,450 total users...")
         existing_users_count = db.query(User).count()

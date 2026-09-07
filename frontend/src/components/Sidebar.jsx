@@ -14,15 +14,15 @@ const Sidebar = ({ activeTab, setActiveTab, onLogout }) => {
     <aside className="dashboard-sidebar">
       <div className="sidebar-logo">
         <div className="brand-logo-container" style={{ justifyContent: 'flex-start' }}>
-          <svg className="brand-logo-svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+          <svg className="brand-logo-svg" viewBox="0 0 24 24" fill="none" stroke="#d97706" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round" style={{ color: '#d97706' }}>
             <circle cx="12" cy="12" r="10" />
             <path d="M7 15c2-2.5 5-2.5 7 0" />
             <path d="M12 9c1.5-1.5 3.5-1.5 5 0-1.5 1.5-1.5 3.5 0 5-1.5-1.5-3.5-1.5-5 0" />
             <path d="M12 9v5" />
           </svg>
-          <span className="brand-title" style={{ fontSize: '24px' }}>ZWM</span>
+          <span className="brand-title" style={{ fontSize: '24px', color: '#38240d', fontWeight: 800 }}>ZWM</span>
         </div>
-        <p className="brand-subtitle" style={{ fontSize: '10px' }}>Zero Waste Management</p>
+        <p className="brand-subtitle" style={{ fontSize: '10px', color: '#92400e', fontWeight: 600 }}>Zero Waste Management</p>
       </div>
 
       <ul className="sidebar-menu">

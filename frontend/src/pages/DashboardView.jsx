@@ -1,14 +1,8 @@
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect } from 'react';
 import {
-  Users,
-  Image as ImageIcon,
-  Hourglass,
-  CheckCircle2,
-  Database,
   TrendingUp,
   Plus,
   Layers,
-  AlertCircle,
   Clock,
   Cpu,
   AlertTriangle,
@@ -16,42 +10,63 @@ import {
   Play,
   ArrowRight,
   Activity,
-  Award,
-  ShieldCheck
+  Trash2
 } from 'lucide-react';
 import {
   createCategory,
+  deleteCategory,
   fetchSystemHealth,
   fetchRecentActivities,
   fetchActiveModel,
   fetchTrainingJobs,
   triggerTrainingJob
 } from '../services/api';
+import CountUp from '../components/CountUp';
+import useInView from '../hooks/useInView';
 
-// Animated count-up component for KPI numbers
-const CountUp = ({ end, duration = 800, suffix = '', prefix = '' }) => {
+// Animated count helper specifically for SVG <text> nodes
+const AnimatedSvgNumber = ({ end, isVisible, delay = 0 }) => {
   const [value, setValue] = useState(0);
-  const rafRef = useRef(null);
-  const startRef = useRef(null);
 
   useEffect(() => {
-    if (end === 0) { setValue(0); return; }
-    startRef.current = performance.now();
-    const animate = (now) => {
-      const elapsed = now - startRef.current;
-      const progress = Math.min(elapsed / duration, 1);
-      // Ease-out cubic
-      const eased = 1 - Math.pow(1 - progress, 3);
-      setValue(Math.round(eased * end));
-      if (progress < 1) {
-        rafRef.current = requestAnimationFrame(animate);
-      }
-    };
-    rafRef.current = requestAnimationFrame(animate);
-    return () => { if (rafRef.current) cancelAnimationFrame(rafRef.current); };
-  }, [end, duration]);
+    if (!isVisible) {
+      setValue(0);
+      return;
+    }
 
-  return <>{prefix}{value.toLocaleString()}{suffix}</>;
+    const target = typeof end === 'number' ? end : parseFloat(end) || 0;
+    if (target === 0) {
+      setValue(0);
+      return;
+    }
+
+    let rafId;
+    let startTime;
+    const duration = 900;
+
+    const timeoutId = setTimeout(() => {
+      startTime = performance.now();
+      const animate = (now) => {
+        const elapsed = now - startTime;
+        const progress = Math.min(elapsed / duration, 1);
+        const eased = 1 - Math.pow(1 - progress, 3);
+        setValue(Math.round(eased * target));
+        if (progress < 1) {
+          rafId = requestAnimationFrame(animate);
+        } else {
+          setValue(target);
+        }
+      };
+      rafId = requestAnimationFrame(animate);
+    }, delay);
+
+    return () => {
+      clearTimeout(timeoutId);
+      if (rafId) cancelAnimationFrame(rafId);
+    };
+  }, [end, isVisible, delay]);
+
+  return <>{value}</>;
 };
 
 const DashboardView = ({ analytics, categoriesList = [], refreshData, setActiveTab }) => {
@@ -67,6 +82,12 @@ const DashboardView = ({ analytics, categoriesList = [], refreshData, setActiveT
     celery: 'running',
     ml_service: 'available'
   });
+
+  // Scroll In-View Animation Refs
+  const [barChartRef, barChartInView] = useInView({ threshold: 0.15 });
+  const [wasteDistRef, wasteDistInView] = useInView({ threshold: 0.15 });
+  const [donutRef, donutInView] = useInView({ threshold: 0.15 });
+  const [registryRef, registryInView] = useInView({ threshold: 0.15 });
 
   // Local UI State
   const [newClassName, setNewClassName] = useState('');
@@ -109,18 +130,24 @@ const DashboardView = ({ analytics, categoriesList = [], refreshData, setActiveT
     }
   };
 
-  const [mounted, setMounted] = useState(false);
+  const [nowTime, setNowTime] = useState(Date.now());
 
   useEffect(() => {
     loadTelemetry();
-    const animTimeout = setTimeout(() => setMounted(true), 100);
-    // Poll telemetry and activity updates every 15 seconds
-    const interval = setInterval(loadTelemetry, 15000);
+
+    // Fast-poll every 3s if job running, else poll 10s
+    const hasRunning = trainingJobs.some(j => j.status === 'running' || j.status === 'queued');
+    const pollInterval = hasRunning ? 3000 : 10000;
+    const interval = setInterval(loadTelemetry, pollInterval);
+
+    // Timer tick for live smooth progress bar
+    const timerTick = setInterval(() => setNowTime(Date.now()), 1000);
+
     return () => {
       clearInterval(interval);
-      clearTimeout(animTimeout);
+      clearInterval(timerTick);
     };
-  }, []);
+  }, [trainingJobs]);
 
   // Extract analytics stats safely
   const totalUsers = analytics?.summary?.total_users || 0;
@@ -150,7 +177,6 @@ const DashboardView = ({ analytics, categoriesList = [], refreshData, setActiveT
     try {
       const result = await triggerTrainingJob();
       setTrainingMessage(result.message || 'Retraining job successfully queued.');
-      // Refresh analytics data and telemetry
       await refreshData();
       await loadTelemetry();
     } catch (err) {
@@ -187,7 +213,6 @@ const DashboardView = ({ analytics, categoriesList = [], refreshData, setActiveT
     if (analytics?.monthly_pipeline && analytics.monthly_pipeline.length > 0) {
       return analytics.monthly_pipeline;
     }
-    // Fallback static seed (only if backend returns empty)
     return [
       { month: 'Mar', uploaded: 150, validated: 110, rejected: 10 },
       { month: 'Apr', uploaded: 350, validated: 260, rejected: 25 },
@@ -200,40 +225,10 @@ const DashboardView = ({ analytics, categoriesList = [], refreshData, setActiveT
 
   const activeMonthlyData = getPipelineMonthlyData();
 
-  // SVG parameters for Pipeline Growth Graph
-  const chartWidth = 580;
-  const chartHeight = 180;
-  const marginX = 40;
-  const marginY = 20;
-
-  const maxVal = Math.max(...activeMonthlyData.map(item => Math.max(item.uploaded, item.validated, item.rejected)), 10) * 1.15;
-  const range = maxVal;
-
-  const uploadedCoords = activeMonthlyData.map((d, idx) => {
-    const x = marginX + (idx / (activeMonthlyData.length - 1)) * (chartWidth - marginX * 2);
-    const y = chartHeight - marginY - (d.uploaded / range) * (chartHeight - marginY * 2);
-    return { x, y };
-  });
-
-  const validatedCoords = activeMonthlyData.map((d, idx) => {
-    const x = marginX + (idx / (activeMonthlyData.length - 1)) * (chartWidth - marginX * 2);
-    const y = chartHeight - marginY - (d.validated / range) * (chartHeight - marginY * 2);
-    return { x, y };
-  });
-
-  const rejectedCoords = activeMonthlyData.map((d, idx) => {
-    const x = marginX + (idx / (activeMonthlyData.length - 1)) * (chartWidth - marginX * 2);
-    const y = chartHeight - marginY - (d.rejected / range) * (chartHeight - marginY * 2);
-    return { x, y };
-  });
-
-  const makePath = (coords) => coords.reduce((acc, coord, idx) => acc + `${idx === 0 ? 'M' : 'L'} ${coord.x} ${coord.y} `, '');
-
   // Calculate dynamic dataset imbalance warning
   const getImbalanceInsight = () => {
     if (categoriesList.length < 2) return null;
     
-    // Sort validated counts
     const sorted = [...categoriesList].sort((a, b) => (b.validated_count || 0) - (a.validated_count || 0));
     const highest = sorted[0];
     const lowest = sorted[sorted.length - 1];
@@ -258,7 +253,6 @@ const DashboardView = ({ analytics, categoriesList = [], refreshData, setActiveT
   const validationRateScore = totalImages > 0 ? Math.round((validatedImages / totalImages) * 100) : 0;
   const duplicateFreeScore = totalImages > 0 ? Math.round(((totalImages - rejectedImages) / totalImages) * 100) : 96;
   
-  // Calculate Class Balance Coefficient (100 - standard deviation / mean * 50)
   const computeClassBalanceScore = () => {
     if (categoriesList.length === 0) return 0;
     const counts = categoriesList.map(c => c.validated_count || 0);
@@ -270,7 +264,7 @@ const DashboardView = ({ analytics, categoriesList = [], refreshData, setActiveT
     return Math.max(20, Math.min(100, Math.round(100 - cv * 45)));
   };
   const classBalanceScore = computeClassBalanceScore();
-  const imageQualityScore = 92; // Quality validation pipelines
+  const imageQualityScore = 92;
   const annotationQualityScore = 91;
 
   const datasetHealthScore = Math.round(
@@ -315,26 +309,46 @@ const DashboardView = ({ analytics, categoriesList = [], refreshData, setActiveT
     }
   };
 
+  // Remove Category Handler
+  const handleRemoveCategory = async (catId, catName) => {
+    if (!window.confirm(`Are you sure you want to remove the "${catName}" category?`)) {
+      return;
+    }
+    setAddError('');
+    setAddSuccess('');
+    try {
+      await deleteCategory(catId);
+      setAddSuccess(`Category "${catName}" removed successfully.`);
+      if (refreshData) {
+        await refreshData();
+      }
+    } catch (err) {
+      setAddError(err.message || `Failed to remove "${catName}" category.`);
+    }
+  };
+
   return (
     <div className="page-fade-in">
       {/* Page Heading */}
       <div style={{ display: 'flex', flexDirection: 'column', gap: '6px', marginBottom: '28px' }}>
-        <h1 style={{ fontSize: '32px', fontWeight: 700, color: '#0F172A', fontFamily: 'var(--font-main)', lineHeight: '1.2' }}>
+        <h1 style={{ fontSize: '32px', fontWeight: 800, color: '#38240d', fontFamily: 'var(--font-main)', lineHeight: '1.2' }}>
           Dashboard
         </h1>
-        <p style={{ fontSize: '14px', fontWeight: 400, color: '#64748B', fontFamily: 'var(--font-main)' }}>
+        <p style={{ fontSize: '14px', fontWeight: 400, color: '#786c5e', fontFamily: 'var(--font-main)' }}>
           Monitor your waste dataset, validation activity, and AI training readiness.
         </p>
       </div>
 
-      {/* 5 KPI Metric Cards Row (Clean SaaS united strip) */}
-      <div className="dashboard-card" style={{ display: 'flex', justifyContent: 'space-between', padding: '18px 24px', alignItems: 'center', backgroundColor: '#ffffff', marginBottom: '24px', flexWrap: 'wrap', gap: '16px' }}>
+      {/* 5 KPI Metric Cards Row (With Scroll CountUp Animations) */}
+      <div className="dashboard-card" style={{ display: 'flex', justifyContent: 'space-between', padding: '20px 26px', alignItems: 'center', backgroundColor: '#fdfaf5', marginBottom: '24px', flexWrap: 'wrap', gap: '16px' }}>
         
         {/* KPI 1: Active Contributors */}
         <div style={{ display: 'flex', flexDirection: 'column', gap: '4px', minWidth: '130px' }}>
           <span style={{ fontSize: '11px', fontWeight: 700, color: 'var(--color-text-muted)', textTransform: 'uppercase', letterSpacing: '0.5px' }}>Active Users</span>
-          <span style={{ fontSize: '24px', fontWeight: 700, color: 'var(--color-text-main)' }}><CountUp end={totalUsers} /></span>
-          <span style={{ fontSize: '11px', color: '#15803D', fontWeight: 500 }}>↑ 12% from last month</span>
+          <span style={{ fontSize: '24px', fontWeight: 800, color: '#38240d' }}>
+            <CountUp end={totalUsers} duration={1000} />
+          </span>
+          <span style={{ fontSize: '11px', color: '#d97706', fontWeight: 600 }}>↑ 12% from last month</span>
         </div>
 
         {/* Divider */}
@@ -343,8 +357,10 @@ const DashboardView = ({ analytics, categoriesList = [], refreshData, setActiveT
         {/* KPI 2: Total Dataset size */}
         <div style={{ display: 'flex', flexDirection: 'column', gap: '4px', minWidth: '130px' }}>
           <span style={{ fontSize: '11px', fontWeight: 700, color: 'var(--color-text-muted)', textTransform: 'uppercase', letterSpacing: '0.5px' }}>Total Images</span>
-          <span style={{ fontSize: '24px', fontWeight: 700, color: 'var(--color-text-main)' }}><CountUp end={totalImages} /></span>
-          <span style={{ fontSize: '11px', color: '#2563EB', fontWeight: 500 }}>↑ 18.4% growth</span>
+          <span style={{ fontSize: '24px', fontWeight: 800, color: '#38240d' }}>
+            <CountUp end={totalImages} duration={1000} />
+          </span>
+          <span style={{ fontSize: '11px', color: '#2563EB', fontWeight: 600 }}>↑ 18.4% growth</span>
         </div>
 
         {/* Divider */}
@@ -356,8 +372,10 @@ const DashboardView = ({ analytics, categoriesList = [], refreshData, setActiveT
           style={{ display: 'flex', flexDirection: 'column', gap: '4px', minWidth: '130px', cursor: 'pointer' }}
         >
           <span style={{ fontSize: '11px', fontWeight: 700, color: '#D97706', textTransform: 'uppercase', letterSpacing: '0.5px' }}>Pending Review</span>
-          <span style={{ fontSize: '24px', fontWeight: 700, color: '#D97706' }}><CountUp end={pendingImages} /></span>
-          <span style={{ fontSize: '11px', color: '#D97706', fontWeight: 600 }}>Needs review →</span>
+          <span style={{ fontSize: '24px', fontWeight: 800, color: '#D97706' }}>
+            <CountUp end={pendingImages} duration={1000} />
+          </span>
+          <span style={{ fontSize: '11px', color: '#D97706', fontWeight: 700 }}>Needs review →</span>
         </div>
 
         {/* Divider */}
@@ -366,8 +384,12 @@ const DashboardView = ({ analytics, categoriesList = [], refreshData, setActiveT
         {/* KPI 4: Validated dataset size */}
         <div style={{ display: 'flex', flexDirection: 'column', gap: '4px', minWidth: '130px' }}>
           <span style={{ fontSize: '11px', fontWeight: 700, color: 'var(--color-text-muted)', textTransform: 'uppercase', letterSpacing: '0.5px' }}>Validated</span>
-          <span style={{ fontSize: '24px', fontWeight: 700, color: 'var(--color-text-main)' }}><CountUp end={validatedImages} /></span>
-          <span style={{ fontSize: '11px', color: '#15803D', fontWeight: 600 }}>{totalImages > 0 ? Math.round((validatedImages / totalImages) * 100) : 0}% rate</span>
+          <span style={{ fontSize: '24px', fontWeight: 800, color: '#38240d' }}>
+            <CountUp end={validatedImages} duration={1000} />
+          </span>
+          <span style={{ fontSize: '11px', color: '#d97706', fontWeight: 700 }}>
+            <CountUp end={totalImages > 0 ? Math.round((validatedImages / totalImages) * 100) : 0} suffix="% rate" duration={1000} />
+          </span>
         </div>
 
         {/* Divider */}
@@ -376,8 +398,10 @@ const DashboardView = ({ analytics, categoriesList = [], refreshData, setActiveT
         {/* KPI 5: Model training readiness progress */}
         <div style={{ display: 'flex', flexDirection: 'column', gap: '4px', minWidth: '130px' }}>
           <span style={{ fontSize: '11px', fontWeight: 700, color: '#6366F1', textTransform: 'uppercase', letterSpacing: '0.5px' }}>AI Readiness</span>
-          <span style={{ fontSize: '24px', fontWeight: 700, color: '#6366F1' }}><CountUp end={readinessPercentage} suffix="%" /></span>
-          <span style={{ fontSize: '11px', color: '#6366F1', fontWeight: 500 }}>
+          <span style={{ fontSize: '24px', fontWeight: 800, color: '#6366F1' }}>
+            <CountUp end={readinessPercentage} suffix="%" duration={1000} />
+          </span>
+          <span style={{ fontSize: '11px', color: '#6366F1', fontWeight: 600 }}>
             {runningJob ? 'Training...' : `${remainingImages} left`}
           </span>
         </div>
@@ -385,18 +409,18 @@ const DashboardView = ({ analytics, categoriesList = [], refreshData, setActiveT
       </div>
 
       {/* Needs Your Attention notification deck */}
-      <section className="dashboard-card" style={{ padding: '18px 20px', border: '1px solid var(--color-border)', marginBottom: '24px' }}>
-        <div style={{ marginBottom: '14px' }}>
-          <h2 style={{ fontSize: '18px', fontWeight: 700, color: 'var(--color-text-main)', display: 'flex', alignItems: 'center', gap: '8px' }}>
+      <section className="dashboard-card" style={{ padding: '22px', border: '1px solid var(--color-border)', marginBottom: '24px' }}>
+        <div style={{ marginBottom: '16px' }}>
+          <h2 className="card-title" style={{ fontSize: '18px', fontWeight: 800, color: '#38240d', display: 'flex', alignItems: 'center', gap: '10px' }}>
             ⚡ Needs Your Attention
           </h2>
-          <p style={{ color: 'var(--color-text-muted)', fontSize: '13px', marginTop: '2px' }}>Actions that may require your review or decision-making</p>
+          <p style={{ color: 'var(--color-text-muted)', fontSize: '13px', marginTop: '2px', paddingLeft: '16px' }}>Actions that may require your review or decision-making</p>
         </div>
 
         <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(280px, 1fr))', gap: '16px' }}>
           
           {/* Action Item 1: Validation Queue */}
-          <div className="attention-item" style={{ padding: '16px', background: '#fffbeb', border: '1px solid #fef3c7', borderRadius: '12px', display: 'flex', flexDirection: 'column', justifyBetween: 'space-between', gap: '12px' }}>
+          <div className="attention-item" style={{ padding: '16px', background: '#fffbeb', border: '1px solid #fef3c7', borderRadius: '12px', display: 'flex', flexDirection: 'column', justifyContent: 'space-between', gap: '12px' }}>
             <div>
               <span style={{ fontSize: '10px', fontWeight: 700, padding: '2px 8px', borderRadius: '12px', backgroundColor: '#fef3c7', color: '#b45309', textTransform: 'uppercase' }}>Needs Review</span>
               <h4 style={{ fontSize: '14px', fontWeight: 700, color: 'var(--color-text-main)', marginTop: '8px' }}>Images Awaiting Validation</h4>
@@ -414,7 +438,7 @@ const DashboardView = ({ analytics, categoriesList = [], refreshData, setActiveT
           </div>
 
           {/* Action Item 2: Class Threshold Bottlenecks */}
-          <div className="attention-item" style={{ padding: '16px', background: '#fdf4ff', border: '1px solid #fae8ff', borderRadius: '12px', display: 'flex', flexDirection: 'column', justifyBetween: 'space-between', gap: '12px' }}>
+          <div className="attention-item" style={{ padding: '16px', background: '#fdf4ff', border: '1px solid #fae8ff', borderRadius: '12px', display: 'flex', flexDirection: 'column', justifyContent: 'space-between', gap: '12px' }}>
             <div>
               <span style={{ fontSize: '10px', fontWeight: 700, padding: '2px 8px', borderRadius: '12px', backgroundColor: '#fae8ff', color: '#86198f', textTransform: 'uppercase' }}>Needs Attention</span>
               <h4 style={{ fontSize: '14px', fontWeight: 700, color: 'var(--color-text-main)', marginTop: '8px' }}>Classes Below Threshold</h4>
@@ -434,7 +458,7 @@ const DashboardView = ({ analytics, categoriesList = [], refreshData, setActiveT
           </div>
 
           {/* Action Item 3: Retraining trigger */}
-          <div className="attention-item" style={{ padding: '16px', background: '#eef2ff', border: '1px solid #e0e7ff', borderRadius: '12px', display: 'flex', flexDirection: 'column', justifyBetween: 'space-between', gap: '12px' }}>
+          <div className="attention-item" style={{ padding: '16px', background: '#eef2ff', border: '1px solid #e0e7ff', borderRadius: '12px', display: 'flex', flexDirection: 'column', justifyContent: 'space-between', gap: '12px' }}>
             <div>
               <span style={{ fontSize: '10px', fontWeight: 700, padding: '2px 8px', borderRadius: '12px', backgroundColor: '#e0e7ff', color: '#3730a3', textTransform: 'uppercase' }}>Pipeline</span>
               <h4 style={{ fontSize: '14px', fontWeight: 700, color: 'var(--color-text-main)', marginTop: '8px' }}>AI Model Retraining</h4>
@@ -461,99 +485,154 @@ const DashboardView = ({ analytics, categoriesList = [], refreshData, setActiveT
       {/* Main analytics panels */}
       <section className="dashboard-grid" style={{ marginBottom: '24px' }}>
         
-        {/* Left Column: Pipeline Line graph */}
-        <div className="dashboard-card" style={{ display: 'flex', flexDirection: 'column', gap: '20px', padding: '22px 24px', border: '1px solid var(--color-border)' }}>
+        {/* Left Column: Category Collection Bar Chart (X: Category Class, Y: Items Collected) */}
+        <div ref={barChartRef} className="dashboard-card" style={{ display: 'flex', flexDirection: 'column', gap: '20px', padding: '22px 24px', border: '1px solid var(--color-border)' }}>
           <div>
             <h2 className="card-title" style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
               <TrendingUp size={18} style={{ color: 'var(--color-primary)' }} />
-              Dataset Pipeline Growth
+              Category Collection Breakdown
             </h2>
-            <p style={{ color: 'var(--color-text-muted)', fontSize: '13px', marginTop: '2px' }}>Track how community uploads move through validation into production.</p>
+            <p style={{ color: 'var(--color-text-muted)', fontSize: '13px', marginTop: '2px' }}>
+              Bar graph showing total collected items across waste classes.
+            </p>
           </div>
 
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-end', marginBottom: '4px' }}>
             <div>
-              <span className="chart-subtitle-meta">Pipeline Telemetry</span>
+              <span className="chart-subtitle-meta">Total Items Collected</span>
               <div className="chart-metric-value" style={{ fontSize: '22px' }}>
-                {totalImages.toLocaleString()} collected
+                <CountUp end={totalImages} suffix=" items" duration={1000} />
               </div>
             </div>
-
-            <div className="chart-legends" style={{ marginBottom: 0 }}>
-              <div className="legend-item">
-                <div className="legend-dot" style={{ backgroundColor: '#2563EB' }} />
-                <span>Uploaded</span>
-              </div>
-              <div className="legend-item" style={{ marginLeft: '12px' }}>
-                <div className="legend-dot animate-pulse" style={{ backgroundColor: '#16A34A' }} />
-                <span>Validated</span>
-              </div>
-              <div className="legend-item" style={{ marginLeft: '12px' }}>
-                <div className="legend-dot" style={{ backgroundColor: '#DC2626' }} />
-                <span>Rejected</span>
-              </div>
+            <div style={{ display: 'flex', alignItems: 'center', gap: '8px', fontSize: '12px', color: 'var(--color-text-muted)' }}>
+              <span style={{ display: 'inline-block', width: '10px', height: '10px', backgroundColor: '#6366F1', borderRadius: '3px' }} />
+              <span>X-Axis: Waste Class &bull; Y-Axis: Items Count</span>
             </div>
           </div>
 
-          {/* SVG Inline Graph rendering */}
-          <div className="area-chart-container chart-entrance" style={{ height: '180px', marginTop: 0 }}>
-            <svg className="chart-svg" viewBox={`0 0 ${chartWidth} ${chartHeight}`}>
-              {/* Grid Lines */}
-              {[0, 0.25, 0.5, 0.75, 1].map((r, idx) => {
-                const y = marginY + r * (chartHeight - marginY * 2);
-                return (
-                  <line
-                    key={idx}
-                    x1={marginX}
-                    y1={y}
-                    x2={chartWidth - marginX}
-                    y2={y}
-                    className="chart-grid-line"
-                    style={{ stroke: '#f1f5f9' }}
-                  />
-                );
-              })}
+          {/* SVG Vertical Bar Graph with Scroll-Triggered Growth Animation */}
+          {(() => {
+            const barItems = (categoriesList.length > 0 ? categoriesList : (analytics?.category_breakdown || []))
+              .map(c => {
+                const catName = c.class_name || c.name || c.category || 'Class';
+                const c1 = c.validated_count || 0;
+                const c2 = c.count || 0;
+                const c3 = getCategoryCount(catName);
+                const finalCount = Math.max(c1, c2, c3);
+                return { name: catName, count: Number(finalCount) };
+              });
 
-              {/* Uploaded Curve (Blue) */}
-              <path d={makePath(uploadedCoords)} fill="none" stroke="#2563EB" strokeWidth={3} strokeLinecap="round" />
-              {uploadedCoords.map((coord, idx) => (
-                <circle key={`u-${idx}`} cx={coord.x} cy={coord.y} r={4} fill="#2563EB" stroke="#ffffff" strokeWidth={2} />
-              ))}
+            const defaultItems = [
+              { name: 'Milk Pouches', count: 20 },
+              { name: 'PET Bottles', count: 6 },
+              { name: 'Lays Packets', count: 0 },
+              { name: 'Glass', count: 0 }
+            ];
 
-              {/* Validated Curve (Green) */}
-              <path d={makePath(validatedCoords)} fill="none" stroke="#16A34A" strokeWidth={3} strokeLinecap="round" />
-              {validatedCoords.map((coord, idx) => (
-                <circle key={`v-${idx}`} cx={coord.x} cy={coord.y} r={4} fill="#16A34A" stroke="#ffffff" strokeWidth={2} />
-              ))}
+            const displayData = barItems.length > 0 ? barItems : defaultItems;
 
-              {/* Rejected Curve (Red) */}
-              <path d={makePath(rejectedCoords)} fill="none" stroke="#DC2626" strokeWidth={2.5} strokeLinecap="round" />
-              {rejectedCoords.map((coord, idx) => (
-                <circle key={`r-${idx}`} cx={coord.x} cy={coord.y} r={3.5} fill="#DC2626" stroke="#ffffff" strokeWidth={1.5} />
-              ))}
+            const svgWidth = 500;
+            const svgHeight = 210;
+            const marginL = 45;
+            const marginR = 20;
+            const marginT = 25;
+            const marginB = 35;
+            const plotW = svgWidth - marginL - marginR;
+            const plotH = svgHeight - marginT - marginB;
 
-              {/* Month Labels */}
-              {activeMonthlyData.map((d, idx) => {
-                const x = marginX + (idx / (activeMonthlyData.length - 1)) * (chartWidth - marginX * 2);
-                return (
-                  <text
-                    key={idx}
-                    x={x}
-                    y={chartHeight - 4}
-                    textAnchor="middle"
-                    className="chart-axis-text"
-                    style={{ fontSize: '10px', fontWeight: 600, fill: 'var(--color-text-muted)' }}
-                  >
-                    {d.month}
-                  </text>
-                );
-              })}
-            </svg>
-          </div>
+            const maxDataVal = Math.max(...displayData.map(d => d.count), 10);
+            const yMax = Math.ceil(maxDataVal / 5) * 5;
+
+            const nBars = displayData.length;
+            const barGroupW = plotW / Math.max(nBars, 1);
+            const barW = Math.min(44, barGroupW * 0.55);
+
+            return (
+              <div className="area-chart-container chart-entrance" style={{ height: '210px', marginTop: 0 }}>
+                <svg className="chart-svg" viewBox={`0 0 ${svgWidth} ${svgHeight}`} style={{ width: '100%', height: '100%', overflow: 'visible' }}>
+                  <defs>
+                    <linearGradient id="verticalBarGradient" x1="0" y1="0" x2="0" y2="1">
+                      <stop offset="0%" stopColor="#6366F1" />
+                      <stop offset="100%" stopColor="#4338CA" />
+                    </linearGradient>
+                  </defs>
+
+                  {/* Y-Axis Grid Lines & Numbers */}
+                  {[0, 0.25, 0.5, 0.75, 1].map((ratio, idx) => {
+                    const yVal = Math.round(yMax * (1 - ratio));
+                    const yPos = marginT + ratio * plotH;
+                    return (
+                      <g key={idx}>
+                        <line x1={marginL} y1={yPos} x2={svgWidth - marginR} y2={yPos} stroke="#f1f5f9" strokeWidth="1" strokeDasharray="4 4" />
+                        <text x={marginL - 8} y={yPos + 4} textAnchor="end" style={{ fontSize: '10px', fill: 'var(--color-text-muted)', fontWeight: 600 }}>
+                          {yVal}
+                        </text>
+                      </g>
+                    );
+                  })}
+
+                  {/* X-Axis Line */}
+                  <line x1={marginL} y1={marginT + plotH} x2={svgWidth - marginR} y2={marginT + plotH} stroke="#cbd5e1" strokeWidth="1.5" />
+
+                  {/* Bars & Labels with Scroll-Triggered Wave Growth Animation */}
+                  {displayData.map((item, idx) => {
+                    const barX = marginL + idx * barGroupW + (barGroupW - barW) / 2;
+                    const targetHeight = (item.count / yMax) * plotH;
+                    
+                    const animHeight = barChartInView ? Math.max(3, targetHeight) : 0;
+                    const animY = barChartInView ? (marginT + plotH - targetHeight) : (marginT + plotH);
+
+                    return (
+                      <g key={idx} className="bar-group">
+                        {/* Number on top of bar (SVG Compatible Pure Text Node) */}
+                        <text
+                          x={barX + barW / 2}
+                          y={animY - 8}
+                          textAnchor="middle"
+                          style={{
+                            fontSize: '12px',
+                            fontWeight: 800,
+                            fill: item.count > 0 ? '#4338CA' : '#94a3b8',
+                            opacity: barChartInView ? 1 : 0,
+                            transition: `opacity 0.5s ease ${idx * 120 + 200}ms`
+                          }}
+                        >
+                          <AnimatedSvgNumber end={item.count} isVisible={barChartInView} delay={idx * 120} />
+                        </text>
+
+                        {/* Bar Rectangle with Wave Growth Animation */}
+                        <rect
+                          x={barX}
+                          y={animY}
+                          width={barW}
+                          height={animHeight}
+                          rx={6}
+                          fill={item.count > 0 ? "url(#verticalBarGradient)" : "#e2e8f0"}
+                          style={{
+                            transition: `height 0.9s cubic-bezier(0.34, 1.56, 0.64, 1) ${idx * 120}ms, y 0.9s cubic-bezier(0.34, 1.56, 0.64, 1) ${idx * 120}ms`
+                          }}
+                        />
+
+                        {/* X-Axis Class Name */}
+                        <text
+                          x={barX + barW / 2}
+                          y={marginT + plotH + 20}
+                          textAnchor="middle"
+                          style={{ fontSize: '11px', fontWeight: 600, fill: 'var(--color-text-main)' }}
+                        >
+                          {item.name.length > 12 ? item.name.slice(0, 10) + '..' : item.name}
+                        </text>
+                      </g>
+                    );
+                  })}
+                </svg>
+              </div>
+            );
+          })()}
         </div>
 
-        {/* Right Column: Waste Class distribution horizontal bar chart - Level 2 Lightweight */}
-        <div id="waste-distribution" className="dashboard-card-light" style={{ display: 'flex', flexDirection: 'column', gap: '20px' }}>
+        {/* Right Column: Waste Class distribution horizontal bar chart */}
+        <div ref={wasteDistRef} id="waste-distribution" className="dashboard-card-light" style={{ display: 'flex', flexDirection: 'column', gap: '20px' }}>
           <div>
             <h2 className="card-title" style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
               <Layers size={18} style={{ color: 'var(--color-primary)' }} />
@@ -564,17 +643,30 @@ const DashboardView = ({ analytics, categoriesList = [], refreshData, setActiveT
 
           <div style={{ display: 'flex', flexDirection: 'column', gap: '12px', maxHeight: '200px', overflowY: 'auto', paddingRight: '4px' }}>
             {categoriesList.map((cat) => {
-              const validated = cat.validated_count || 0;
-              const barWidth = validatedImages > 0 ? Math.round((validated / validatedImages) * 100) : 0;
+              const catName = cat.name || cat.class_name || 'Category';
+              const c1 = cat.validated_count || 0;
+              const c2 = cat.count || 0;
+              const c3 = getCategoryCount(catName);
+              const validated = Math.max(c1, c2, c3);
+              const maxTotalCount = Math.max(validatedImages, totalImages, 1);
+              const barWidth = Math.round((validated / maxTotalCount) * 100);
               
               return (
-                <div key={cat.id} style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
+                <div key={cat.id || cat.category_id || catName} style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
                   <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '12px', fontWeight: 600 }}>
-                    <span style={{ color: 'var(--color-text-main)' }}>{cat.name}</span>
-                    <span style={{ color: 'var(--color-text-muted)' }}>{validated} validated</span>
+                    <span style={{ color: 'var(--color-text-main)' }}>{catName}</span>
+                    <span style={{ color: 'var(--color-text-muted)' }}>
+                      <CountUp end={validated} suffix=" validated" duration={800} />
+                    </span>
                   </div>
                   <div style={{ width: '100%', height: '8px', backgroundColor: '#e2e8f0', borderRadius: '4px', overflow: 'hidden' }}>
-                    <div style={{ width: mounted ? `${barWidth}%` : '0%', height: '100%', backgroundColor: 'var(--color-primary)', borderRadius: '4px', transition: 'width 1s cubic-bezier(0.34, 1.56, 0.64, 1)' }} />
+                    <div style={{
+                      width: wasteDistInView ? `${barWidth}%` : '0%',
+                      height: '100%',
+                      backgroundColor: 'var(--color-primary)',
+                      borderRadius: '4px',
+                      transition: 'width 1s cubic-bezier(0.34, 1.56, 0.64, 1)'
+                    }} />
                   </div>
                 </div>
               );
@@ -622,44 +714,56 @@ const DashboardView = ({ analytics, categoriesList = [], refreshData, setActiveT
               <div>
                 <span style={{ fontSize: '11px', fontWeight: 600, color: 'var(--color-text-muted)' }}>PIPELINE STATUS</span>
                 <span style={{ display: 'block', fontSize: '20px', fontWeight: 700, color: 'var(--color-text-main)' }}>
-                  {runningJob ? '● Retraining' : readinessPercentage === 100 ? '● Ready for Training' : '● Targets Incomplete'}
+                  {runningJob ? '● Retraining' : readinessPercentage === 100 ? '● Ready for Training' : '● Manual Retrain Ready'}
                 </span>
               </div>
               <button
                 className="panel-btn"
-                disabled={trainingLoading || !!runningJob || readinessPercentage < 100}
+                disabled={trainingLoading || !!runningJob}
                 onClick={handleStartTraining}
                 style={{
                   width: 'auto',
-                  padding: '8px 16px',
+                  padding: '10px 20px',
                   borderRadius: '8px',
                   display: 'flex',
                   alignItems: 'center',
-                  gap: '6px',
-                  backgroundColor: readinessPercentage === 100 && !runningJob ? '#6366F1' : '#cbd5e1',
+                  gap: '8px',
+                  backgroundColor: !runningJob ? '#6366F1' : '#cbd5e1',
                   color: '#ffffff',
-                  cursor: readinessPercentage === 100 && !runningJob ? 'pointer' : 'not-allowed'
+                  fontWeight: 700,
+                  fontSize: '14px',
+                  cursor: !runningJob ? 'pointer' : 'not-allowed',
+                  boxShadow: !runningJob ? '0 4px 12px rgba(99, 102, 241, 0.35)' : 'none',
+                  transition: 'all 0.2s ease',
                 }}
               >
-                <Play size={14} /> Start Retraining
+                <Play size={16} /> Start Retraining
               </button>
             </div>
 
-            {/* Simulated training progress when Celery task is executing */}
-            {runningJob && (
-              <div style={{ display: 'flex', flexDirection: 'column', gap: '6px', borderTop: '1px solid var(--color-border)', paddingTop: '14px' }}>
-                <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '12px', fontWeight: 700, color: '#3730a3' }}>
-                  <span>Epoch execution progress (YOLO11n)</span>
-                  <span>72%</span>
+            {/* Dynamic training progress when task is executing */}
+            {runningJob && (() => {
+              const startedAt = runningJob.started_at ? new Date(runningJob.started_at).getTime() : nowTime;
+              const elapsedSec = Math.max(0, (nowTime - startedAt) / 1000);
+              const totalExpectedSec = 40;
+              const progressPercent = Math.min(99, Math.max(8, Math.floor((elapsedSec / totalExpectedSec) * 100)));
+              const currentEpoch = Math.min(50, Math.max(1, Math.floor((elapsedSec / totalExpectedSec) * 50)));
+
+              return (
+                <div style={{ display: 'flex', flexDirection: 'column', gap: '6px', borderTop: '1px solid var(--color-border)', paddingTop: '14px' }}>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '12px', fontWeight: 700, color: '#3730a3' }}>
+                    <span>Epoch execution progress (YOLOv8n)</span>
+                    <span>{progressPercent}%</span>
+                  </div>
+                  <div style={{ width: '100%', height: '8px', backgroundColor: '#e2e8f0', borderRadius: '4px', overflow: 'hidden', position: 'relative' }}>
+                    <div className="training-active-bar" style={{ width: `${progressPercent}%`, height: '100%', backgroundColor: '#6366F1', borderRadius: '4px', transition: 'width 0.8s ease-in-out' }} />
+                  </div>
+                  <span style={{ fontSize: '10px', color: 'var(--color-text-muted)' }}>
+                    Epoch {currentEpoch} / 50 &bull; Running tensor loss backpropagation & validation metrics.
+                  </span>
                 </div>
-                <div style={{ width: '100%', height: '8px', backgroundColor: '#e2e8f0', borderRadius: '4px', overflow: 'hidden', position: 'relative' }}>
-                  <div className="training-active-bar" style={{ width: '72%', height: '100%', backgroundColor: '#6366F1', borderRadius: '4px' }} />
-                </div>
-                <span style={{ fontSize: '10px', color: 'var(--color-text-muted)' }}>
-                  Epoch 72 / 100 &bull; Running validations on batch tensor files.
-                </span>
-              </div>
-            )}
+              );
+            })()}
           </div>
 
           {/* Metrics of Active Model */}
@@ -670,25 +774,25 @@ const DashboardView = ({ analytics, categoriesList = [], refreshData, setActiveT
                 <div style={{ padding: '10px 12px', background: '#f8fafc', border: '1px solid var(--color-border)', borderRadius: '10px' }}>
                   <span style={{ fontSize: '11px', color: 'var(--color-text-muted)', display: 'block' }}>mAP@50 Accuracy</span>
                   <span style={{ fontSize: '15px', fontWeight: 700, color: 'var(--color-text-main)' }}>
-                    {activeModelInfo.map_score ? `${(activeModelInfo.map_score * 100).toFixed(1)}%` : '91.4%'}
+                    <CountUp end={activeModelInfo.map_score ? activeModelInfo.map_score * 100 : 91.4} decimals={1} suffix="%" duration={1000} />
                   </span>
                 </div>
                 <div style={{ padding: '10px 12px', background: '#f8fafc', border: '1px solid var(--color-border)', borderRadius: '10px' }}>
                   <span style={{ fontSize: '11px', color: 'var(--color-text-muted)', display: 'block' }}>Precision Rate</span>
                   <span style={{ fontSize: '15px', fontWeight: 700, color: 'var(--color-text-main)' }}>
-                    {activeModelInfo.metrics?.precision ? `${(activeModelInfo.metrics.precision * 100).toFixed(1)}%` : '93.1%'}
+                    <CountUp end={activeModelInfo.metrics?.precision ? activeModelInfo.metrics.precision * 100 : 93.1} decimals={1} suffix="%" duration={1000} />
                   </span>
                 </div>
                 <div style={{ padding: '10px 12px', background: '#f8fafc', border: '1px solid var(--color-border)', borderRadius: '10px' }}>
                   <span style={{ fontSize: '11px', color: 'var(--color-text-muted)', display: 'block' }}>Recall Score</span>
                   <span style={{ fontSize: '15px', fontWeight: 700, color: 'var(--color-text-main)' }}>
-                    {activeModelInfo.metrics?.recall ? `${(activeModelInfo.metrics.recall * 100).toFixed(1)}%` : '89.8%'}
+                    <CountUp end={activeModelInfo.metrics?.recall ? activeModelInfo.metrics.recall * 100 : 89.8} decimals={1} suffix="%" duration={1000} />
                   </span>
                 </div>
                 <div style={{ padding: '10px 12px', background: '#f8fafc', border: '1px solid var(--color-border)', borderRadius: '10px' }}>
                   <span style={{ fontSize: '11px', color: 'var(--color-text-muted)', display: 'block' }}>Dataset Size</span>
                   <span style={{ fontSize: '15px', fontWeight: 700, color: 'var(--color-text-main)' }}>
-                    {activeModelInfo.dataset_info ? Object.values(activeModelInfo.dataset_info).reduce((a, b) => a + b, 0) : '890'} images
+                    <CountUp end={activeModelInfo.dataset_info ? Object.values(activeModelInfo.dataset_info).reduce((a, b) => a + b, 0) : 890} suffix=" images" duration={1000} />
                   </span>
                 </div>
               </div>
@@ -699,19 +803,23 @@ const DashboardView = ({ analytics, categoriesList = [], refreshData, setActiveT
               <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '10px' }}>
                 <div style={{ padding: '10px 12px', background: '#f8fafc', border: '1px solid var(--color-border)', borderRadius: '10px' }}>
                   <span style={{ fontSize: '11px', color: 'var(--color-text-muted)', display: 'block' }}>mAP@50 Accuracy</span>
-                  <span style={{ fontSize: '15px', fontWeight: 700, color: 'var(--color-text-main)' }}>91.4%</span>
+                  <span style={{ fontSize: '15px', fontWeight: 700, color: 'var(--color-text-main)' }}>
+                    <CountUp end={91.4} decimals={1} suffix="%" duration={1000} />
+                  </span>
                 </div>
                 <div style={{ padding: '10px 12px', background: '#f8fafc', border: '1px solid var(--color-border)', borderRadius: '10px' }}>
                   <span style={{ fontSize: '11px', color: 'var(--color-text-muted)', display: 'block' }}>Precision Rate</span>
-                  <span style={{ fontSize: '15px', fontWeight: 700, color: 'var(--color-text-main)' }}>93.1%</span>
+                  <span style={{ fontSize: '15px', fontWeight: 700, color: 'var(--color-text-main)' }}>
+                    <CountUp end={93.1} decimals={1} suffix="%" duration={1000} />
+                  </span>
                 </div>
               </div>
             </div>
           )}
         </div>
 
-        {/* Dataset Quality and Health Score */}
-        <div className="dashboard-card" style={{ display: 'flex', flexDirection: 'column', gap: '20px', padding: '22px 24px', border: '1px solid var(--color-border)' }}>
+        {/* Dataset Quality and Health Score (With Animated Donut & Scroll CountUp) */}
+        <div ref={donutRef} className="dashboard-card" style={{ display: 'flex', flexDirection: 'column', gap: '20px', padding: '22px 24px', border: '1px solid var(--color-border)' }}>
           <div>
             <h2 className="card-title" style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
               <Activity size={18} style={{ color: 'var(--color-primary)' }} />
@@ -720,52 +828,67 @@ const DashboardView = ({ analytics, categoriesList = [], refreshData, setActiveT
             <p style={{ color: 'var(--color-text-muted)', fontSize: '13px', marginTop: '2px' }}>Audit metrics score for AI model compliance.</p>
           </div>
 
-          <div style={{ display: 'flex', alignItems: 'center', gap: '24px', padding: '4px' }}>
-            {/* Health ring visualization */}
-            <div style={{ position: 'relative', width: '90px', height: '90px', flexShrink: 0 }}>
-              <svg width="100%" height="100%" viewBox="0 0 42 42" className="donut">
-                <circle className="donut-hole" cx="21" cy="21" r="15.91549430918954" fill="transparent" />
-                <circle className="donut-ring" cx="21" cy="21" r="15.91549430918954" fill="transparent" stroke="#f1f5f9" strokeWidth="3" />
-                <circle
-                  className="donut-segment"
-                  cx="21"
-                  cy="21"
-                  r="15.91549430918954"
-                  fill="transparent"
-                  stroke="var(--color-primary)"
-                  strokeWidth="3.5"
-                  strokeDasharray={`${datasetHealthScore} ${100 - datasetHealthScore}`}
-                  strokeDashoffset="25"
-                  strokeLinecap="round"
-                  style={{ transition: 'stroke-dasharray 1s ease' }}
-                />
-              </svg>
-              <div style={{ position: 'absolute', top: '50%', left: '50%', transform: 'translate(-50%, -50%)', textAlign: 'center' }}>
-                <span style={{ fontSize: '18px', fontWeight: 700, color: 'var(--color-text-main)' }}>{datasetHealthScore}</span>
-                <span style={{ display: 'block', fontSize: '9px', fontWeight: 700, color: 'var(--color-primary)' }}>GOOD</span>
+          <div style={{ display: 'flex', flexDirection: 'column', gap: '16px', padding: '4px' }}>
+            {/* Top half: Centered Donut Graph (With Stroke Growth Animation) */}
+            <div style={{ display: 'flex', justifyContent: 'center', alignItems: 'center', padding: '12px 0' }}>
+              <div style={{ position: 'relative', width: '135px', height: '135px', flexShrink: 0 }}>
+                <svg width="100%" height="100%" viewBox="0 0 42 42" className="donut">
+                  <circle className="donut-hole" cx="21" cy="21" r="15.91549430918954" fill="transparent" />
+                  <circle className="donut-ring" cx="21" cy="21" r="15.91549430918954" fill="transparent" stroke="#f1f5f9" strokeWidth="3" />
+                  <circle
+                    className="donut-segment"
+                    cx="21"
+                    cy="21"
+                    r="15.91549430918954"
+                    fill="transparent"
+                    stroke="var(--color-primary)"
+                    strokeWidth="3.5"
+                    strokeDasharray={donutInView ? `${datasetHealthScore} ${100 - datasetHealthScore}` : `0 100`}
+                    strokeDashoffset="25"
+                    strokeLinecap="round"
+                    style={{ transition: 'stroke-dasharray 1.2s cubic-bezier(0.34, 1.56, 0.64, 1)' }}
+                  />
+                </svg>
+                <div style={{ position: 'absolute', top: '50%', left: '50%', transform: 'translate(-50%, -50%)', textAlign: 'center' }}>
+                  <span style={{ fontSize: '26px', fontWeight: 800, color: 'var(--color-text-main)', display: 'block', lineHeight: 1.1 }}>
+                    <CountUp end={datasetHealthScore} duration={1000} />
+                  </span>
+                  <span style={{ display: 'block', fontSize: '11px', fontWeight: 700, color: 'var(--color-primary)', letterSpacing: '0.5px' }}>GOOD</span>
+                </div>
               </div>
             </div>
 
-            <div style={{ display: 'flex', flexDirection: 'column', gap: '8px', width: '100%' }}>
-              <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '12px' }}>
+            {/* Bottom half: Metrics list with Animated CountUps */}
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '10px', width: '100%', borderTop: '1px solid var(--color-border)', paddingTop: '16px' }}>
+              <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '13px' }}>
                 <span style={{ color: 'var(--color-text-muted)' }}>Image Quality check</span>
-                <strong style={{ color: 'var(--color-text-main)' }}>{imageQualityScore}%</strong>
+                <strong style={{ color: 'var(--color-text-main)' }}>
+                  <CountUp end={imageQualityScore} suffix="%" duration={1000} />
+                </strong>
               </div>
-              <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '12px' }}>
+              <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '13px' }}>
                 <span style={{ color: 'var(--color-text-muted)' }}>Validation Rate</span>
-                <strong style={{ color: 'var(--color-text-main)' }}>{validationRateScore}%</strong>
+                <strong style={{ color: 'var(--color-text-main)' }}>
+                  <CountUp end={validationRateScore} suffix="%" duration={1000} />
+                </strong>
               </div>
-              <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '12px' }}>
+              <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '13px' }}>
                 <span style={{ color: 'var(--color-text-muted)' }}>Duplicate-free</span>
-                <strong style={{ color: 'var(--color-text-main)' }}>{duplicateFreeScore}%</strong>
+                <strong style={{ color: 'var(--color-text-main)' }}>
+                  <CountUp end={duplicateFreeScore} suffix="%" duration={1000} />
+                </strong>
               </div>
-              <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '12px' }}>
+              <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '13px' }}>
                 <span style={{ color: 'var(--color-text-muted)' }}>Category Balance</span>
-                <strong style={{ color: 'var(--color-text-main)' }}>{classBalanceScore}%</strong>
+                <strong style={{ color: 'var(--color-text-main)' }}>
+                  <CountUp end={classBalanceScore} suffix="%" duration={1000} />
+                </strong>
               </div>
-              <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '12px' }}>
+              <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '13px' }}>
                 <span style={{ color: 'var(--color-text-muted)' }}>Annotations Quality</span>
-                <strong style={{ color: 'var(--color-text-main)' }}>{annotationQualityScore}%</strong>
+                <strong style={{ color: 'var(--color-text-main)' }}>
+                  <CountUp end={annotationQualityScore} suffix="%" duration={1000} />
+                </strong>
               </div>
             </div>
           </div>
@@ -802,9 +925,15 @@ const DashboardView = ({ analytics, categoriesList = [], refreshData, setActiveT
                   <tr key={user.user_id || idx} style={{ borderBottom: '1px solid var(--color-border)' }}>
                     <td style={{ padding: '10px 8px', fontWeight: 700 }}>{idx + 1}</td>
                     <td style={{ padding: '10px 8px', fontWeight: 600, color: 'var(--color-text-main)' }}>{user.email}</td>
-                    <td style={{ padding: '10px 8px' }}>{user.uploads}</td>
-                    <td style={{ padding: '10px 8px', color: '#16A34A', fontWeight: 600 }}>{user.approved}</td>
-                    <td style={{ padding: '10px 8px', color: 'var(--color-primary)', fontWeight: 700 }}>{user.reward_points} pts</td>
+                    <td style={{ padding: '10px 8px' }}>
+                      <CountUp end={user.uploads} duration={800} />
+                    </td>
+                    <td style={{ padding: '10px 8px', color: '#16A34A', fontWeight: 600 }}>
+                      <CountUp end={user.approved} duration={800} />
+                    </td>
+                    <td style={{ padding: '10px 8px', color: 'var(--color-primary)', fontWeight: 700 }}>
+                      <CountUp end={user.reward_points} suffix=" pts" duration={800} />
+                    </td>
                   </tr>
                 ))}
               </tbody>
@@ -812,7 +941,7 @@ const DashboardView = ({ analytics, categoriesList = [], refreshData, setActiveT
           </div>
         </div>
 
-        {/* Recent activities log - Level 2 Lightweight */}
+        {/* Recent activities log */}
         <div className="dashboard-card-light" style={{ display: 'flex', flexDirection: 'column', gap: '16px', maxHeight: '380px', overflowY: 'auto' }}>
           <div>
             <h2 className="card-title" style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
@@ -833,7 +962,7 @@ const DashboardView = ({ analytics, categoriesList = [], refreshData, setActiveT
               if (act.status_color === 'amber') typeColor = '#D97706';
 
               return (
-                <div key={act.id} style={{ display: 'flex', justifyBetween: 'space-between', gap: '12px', alignItems: 'center', fontSize: '13px' }}>
+                <div key={act.id} style={{ display: 'flex', justifyContent: 'space-between', gap: '12px', alignItems: 'center', fontSize: '13px' }}>
                   <div style={{ display: 'flex', alignItems: 'center', gap: '8px', width: '100%' }}>
                     <span style={{ width: '8px', height: '8px', borderRadius: '50%', backgroundColor: typeColor, flexShrink: 0 }} />
                     <span style={{ color: 'var(--color-text-main)', wordBreak: 'break-word' }}>{act.description}</span>
@@ -850,8 +979,8 @@ const DashboardView = ({ analytics, categoriesList = [], refreshData, setActiveT
       {/* Registry manager and System Health Hub */}
       <section className="dashboard-grid">
         
-        {/* Category breakdown (Keep registry but style beautifully as Level 2 list progress bars) */}
-        <div className="dashboard-card-light" style={{ display: 'flex', flexDirection: 'column', gap: '20px' }}>
+        {/* Category breakdown with scroll-animated progress bars */}
+        <div ref={registryRef} className="dashboard-card-light" style={{ display: 'flex', flexDirection: 'column', gap: '20px' }}>
           <div>
             <h2 className="card-title">Category Registry Breakdown</h2>
             <p style={{ color: 'var(--color-text-muted)', fontSize: '13px', marginTop: '2px' }}>Manage valid waste classes and targets.</p>
@@ -862,17 +991,44 @@ const DashboardView = ({ analytics, categoriesList = [], refreshData, setActiveT
               const validated = cat.validated_count || 0;
               const isReady = validated >= threshold;
               const barWidth = Math.min(100, Math.round((validated / threshold) * 100));
+              const catId = cat.id || cat.category_id;
               
               return (
-                <div key={cat.id} style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
-                  <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '12px', fontWeight: 600 }}>
+                <div key={catId} style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', fontSize: '12px', fontWeight: 600 }}>
                     <span style={{ color: 'var(--color-text-main)' }}>{cat.name}</span>
-                    <span style={{ color: isReady ? '#16A34A' : '#D97706' }}>
-                      {isReady ? '✓ Active' : `${validated} / ${threshold}`}
-                    </span>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                      <span style={{ color: isReady ? '#16A34A' : '#D97706' }}>
+                        {isReady ? '✓ Active' : `${validated} / ${threshold}`}
+                      </span>
+                      <button
+                        type="button"
+                        onClick={() => handleRemoveCategory(catId, cat.name)}
+                        style={{
+                          background: 'none',
+                          border: 'none',
+                          color: '#ef4444',
+                          cursor: 'pointer',
+                          padding: '2px',
+                          display: 'inline-flex',
+                          alignItems: 'center',
+                          borderRadius: '4px',
+                          transition: 'opacity 0.2s',
+                        }}
+                        title={`Remove ${cat.name} Category`}
+                      >
+                        <Trash2 size={14} />
+                      </button>
+                    </div>
                   </div>
                   <div style={{ width: '100%', height: '5px', backgroundColor: '#e2e8f0', borderRadius: '3px', overflow: 'hidden' }}>
-                    <div style={{ width: mounted ? `${barWidth}%` : '0%', height: '100%', backgroundColor: isReady ? '#16A34A' : '#D97706', borderRadius: '3px', transition: 'width 1s cubic-bezier(0.34, 1.56, 0.64, 1)' }} />
+                    <div style={{
+                      width: registryInView ? `${barWidth}%` : '0%',
+                      height: '100%',
+                      backgroundColor: isReady ? '#16A34A' : '#D97706',
+                      borderRadius: '3px',
+                      transition: 'width 1s cubic-bezier(0.34, 1.56, 0.64, 1)'
+                    }} />
                   </div>
                 </div>
               );
@@ -902,67 +1058,6 @@ const DashboardView = ({ analytics, categoriesList = [], refreshData, setActiveT
           </form>
           {addError && <span style={{ color: 'var(--color-error)', fontSize: '11px', marginTop: '6px', display: 'block' }}>{addError}</span>}
           {addSuccess && <span style={{ color: '#16A34A', fontSize: '11px', marginTop: '6px', display: 'block' }}>{addSuccess}</span>}
-        </div>
-
-        {/* Repository/System Health Hub - Level 2 Lightweight */}
-        <div className="dashboard-card-light" style={{ display: 'flex', flexDirection: 'column', gap: '20px' }}>
-          <div>
-            <h2 className="card-title" style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-              <Database size={18} style={{ color: 'var(--color-primary)' }} />
-              Repository Health Hub
-            </h2>
-            <p style={{ color: 'var(--color-text-muted)', fontSize: '13px', marginTop: '2px' }}>Operational health checks on application cluster nodes.</p>
-          </div>
-
-          <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
-            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', fontSize: '13px' }}>
-              <span style={{ color: 'var(--color-text-muted)' }}>FastAPI Gateway Endpoint</span>
-              <span style={{ display: 'flex', alignItems: 'center', gap: '6px', fontWeight: 600, color: systemHealth.api === 'operational' ? '#16A34A' : '#DC2626' }}>
-                <span className={systemHealth.api === 'operational' ? 'pulse-light' : ''} style={{ width: '8px', height: '8px', borderRadius: '50%', backgroundColor: systemHealth.api === 'operational' ? '#16A34A' : '#DC2626' }} />
-                {systemHealth.api === 'operational' ? 'Operational' : 'Critical'}
-              </span>
-            </div>
-
-            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', fontSize: '13px' }}>
-              <span style={{ color: 'var(--color-text-muted)' }}>PostgreSQL Database</span>
-              <span style={{ display: 'flex', alignItems: 'center', gap: '6px', fontWeight: 600, color: systemHealth.database === 'connected' ? '#16A34A' : '#DC2626' }}>
-                <span className={systemHealth.database === 'connected' ? 'pulse-light' : ''} style={{ width: '8px', height: '8px', borderRadius: '50%', backgroundColor: systemHealth.database === 'connected' ? '#16A34A' : '#DC2626' }} />
-                {systemHealth.database === 'connected' ? 'Connected' : 'Offline'}
-              </span>
-            </div>
-
-            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', fontSize: '13px' }}>
-              <span style={{ color: 'var(--color-text-muted)' }}>Local / S3 Storage Disk</span>
-              <span style={{ display: 'flex', alignItems: 'center', gap: '6px', fontWeight: 600, color: systemHealth.storage === 'connected' ? '#16A34A' : '#DC2626' }}>
-                <span className={systemHealth.storage === 'connected' ? 'pulse-light' : ''} style={{ width: '8px', height: '8px', borderRadius: '50%', backgroundColor: systemHealth.storage === 'connected' ? '#16A34A' : '#DC2626' }} />
-                {systemHealth.storage === 'connected' ? 'Writable' : 'Read-only/Error'}
-              </span>
-            </div>
-
-            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', fontSize: '13px' }}>
-              <span style={{ color: 'var(--color-text-muted)' }}>Redis Cache Server</span>
-              <span style={{ display: 'flex', alignItems: 'center', gap: '6px', fontWeight: 600, color: systemHealth.redis === 'connected' ? '#16A34A' : '#DC2626' }}>
-                <span className={systemHealth.redis === 'connected' ? 'pulse-light' : ''} style={{ width: '8px', height: '8px', borderRadius: '50%', backgroundColor: systemHealth.redis === 'connected' ? '#16A34A' : '#DC2626' }} />
-                {systemHealth.redis === 'connected' ? 'Connected' : 'Offline'}
-              </span>
-            </div>
-
-            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', fontSize: '13px' }}>
-              <span style={{ color: 'var(--color-text-muted)' }}>Celery Background Worker</span>
-              <span style={{ display: 'flex', alignItems: 'center', gap: '6px', fontWeight: 600, color: systemHealth.celery === 'running' ? '#16A34A' : '#D97706' }}>
-                <span className={systemHealth.celery === 'running' ? 'pulse-light' : ''} style={{ width: '8px', height: '8px', borderRadius: '50%', backgroundColor: systemHealth.celery === 'running' ? '#16A34A' : '#D97706' }} />
-                {systemHealth.celery === 'running' ? 'Active Worker' : 'Worker Offline'}
-              </span>
-            </div>
-
-            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', fontSize: '13px' }}>
-              <span style={{ color: 'var(--color-text-muted)' }}>YOLO ML Retraining Weights</span>
-              <span style={{ display: 'flex', alignItems: 'center', gap: '6px', fontWeight: 600, color: systemHealth.ml_service === 'available' ? '#16A34A' : '#D97706' }}>
-                <span className={systemHealth.ml_service === 'available' ? 'pulse-light' : ''} style={{ width: '8px', height: '8px', borderRadius: '50%', backgroundColor: systemHealth.ml_service === 'available' ? '#16A34A' : '#D97706' }} />
-                {systemHealth.ml_service === 'available' ? 'Available' : 'Weights Missing'}
-              </span>
-            </div>
-          </div>
         </div>
 
       </section>

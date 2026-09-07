@@ -1,4 +1,4 @@
-﻿"""
+"""
 Annotation conversion service — YOLO bounding-box utilities.
 
 Provides functions to:
@@ -24,33 +24,48 @@ def shape_to_bbox(annotation_type: str, label_data: dict) -> Optional[tuple[floa
     """
     Derive an axis-aligned bounding box from annotation shape data.
 
+    Supports shapes: rectangle, polygon, circle, freehand, ai_polygon.
+    Handles both dict points [{"x": x, "y": y}] and pair points [[x, y]],
+    as well as explicit bbox structures.
+
     Returns (x_min, y_min, x_max, y_max) in pixel coordinates,
     or None if the data is insufficient.
-
-    Parameters
-    ----------
-    annotation_type : str
-        One of: rectangle, polygon, circle, freehand
-    label_data : dict
-        The stored label_data_json value from the Annotation record.
     """
-    if not label_data:
+    if not label_data or not isinstance(label_data, dict):
         return None
 
     try:
-        if annotation_type == "circle":
-            cx = float(label_data["cx"])
-            cy = float(label_data["cy"])
-            r = float(label_data["r"])
+        # Check explicit bbox array fallback if present: [x_min, y_min, x_max, y_max]
+        if "bbox" in label_data and isinstance(label_data["bbox"], (list, tuple)) and len(label_data["bbox"]) == 4:
+            b = label_data["bbox"]
+            return (float(b[0]), float(b[1]), float(b[2]), float(b[3]))
+
+        norm_type = (annotation_type or "").lower()
+
+        # Circle shape
+        if norm_type == "circle" or "r" in label_data or "radius" in label_data:
+            cx = float(label_data.get("cx") or (label_data.get("center", {}) or {}).get("x", 0))
+            cy = float(label_data.get("cy") or (label_data.get("center", {}) or {}).get("y", 0))
+            r = float(label_data.get("r") or label_data.get("radius", 0))
             return (cx - r, cy - r, cx + r, cy + r)
 
-        # rectangle / polygon / freehand — all use a "points" list
+        # Points-based shapes: rectangle, polygon, freehand, ai_polygon
         points = label_data.get("points", [])
         if not points:
             return None
 
-        xs = [float(p["x"]) for p in points]
-        ys = [float(p["y"]) for p in points]
+        xs, ys = [], []
+        for p in points:
+            if isinstance(p, dict) and "x" in p and "y" in p:
+                xs.append(float(p["x"]))
+                ys.append(float(p["y"]))
+            elif isinstance(p, (list, tuple)) and len(p) >= 2:
+                xs.append(float(p[0]))
+                ys.append(float(p[1]))
+
+        if not xs or not ys:
+            return None
+
         return (min(xs), min(ys), max(xs), max(ys))
 
     except (KeyError, TypeError, ValueError):

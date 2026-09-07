@@ -1,12 +1,13 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { Bell, Plus, X, Search } from 'lucide-react';
+import { Plus, X, Search } from 'lucide-react';
 import { createNewAdmin } from '../services/api';
 
 const Header = () => {
   const [showAddAdmin, setShowAddAdmin] = useState(false);
   const [searchQuery, setSearchQuery] = useState('');
-  const [adminId, setAdminId] = useState('');
   const [adminEmail, setAdminEmail] = useState('');
+  const [adminPassword, setAdminPassword] = useState('');
+  const [adminConfirmPassword, setAdminConfirmPassword] = useState('');
   const [adminRole, setAdminRole] = useState('Super Admin');
   const [addAdminLoading, setAddAdminLoading] = useState(false);
   const [addAdminSuccess, setAddAdminSuccess] = useState('');
@@ -35,22 +36,27 @@ const Header = () => {
     setAddAdminSuccess('');
     setAddAdminError('');
 
-    if (!adminId.trim()) {
-      setAddAdminError('Admin ID is required.');
-      return;
-    }
     if (!adminEmail.trim()) {
       setAddAdminError('Email is required.');
+      return;
+    }
+    if (!adminPassword) {
+      setAddAdminError('Password is required.');
+      return;
+    }
+    if (adminPassword !== adminConfirmPassword) {
+      setAddAdminError('Password and Confirm Password do not match.');
       return;
     }
 
     setAddAdminLoading(true);
 
     try {
-      const result = await createNewAdmin(adminId, adminEmail, adminRole);
-      setAddAdminSuccess(`Admin created! Temp password: ${result.temp_password}`);
-      setAdminId('');
+      const result = await createNewAdmin(adminEmail.trim(), adminPassword, adminConfirmPassword, adminRole);
+      setAddAdminSuccess('Admin created successfully in admins table!');
       setAdminEmail('');
+      setAdminPassword('');
+      setAdminConfirmPassword('');
     } catch (err) {
       setAddAdminError(err.message || 'Failed to create admin.');
     } finally {
@@ -62,12 +68,12 @@ const Header = () => {
     <header className="dashboard-top-navbar">
       {/* Left section: Welcome Title */}
       <div className="navbar-left">
-        <h2 style={{ fontSize: '22px', fontWeight: 700, color: '#0F172A', fontFamily: 'var(--font-main)', margin: 0, display: 'flex', alignItems: 'center', gap: '8px' }}>
+        <h2 style={{ fontSize: '22px', fontWeight: 800, color: '#38240d', fontFamily: 'var(--font-main)', margin: 0, display: 'flex', alignItems: 'center', gap: '8px' }}>
           Welcome back, Admin <span style={{ fontSize: '20px' }}>👋</span>
         </h2>
       </div>
 
-      {/* Right section: Action button, Notifications, Profile Card */}
+      {/* Right section: Action button, Profile Card */}
       <div className="navbar-right">
         <button
           ref={plusBtnRef}
@@ -83,26 +89,10 @@ const Header = () => {
           <span>Add Admin</span>
         </button>
 
-        <button
-          className="navbar-icon-btn"
-          style={{ padding: '10px' }}
-          aria-label="Notifications"
-          onClick={() => alert('No new notifications.')}
-        >
-          <Bell size={20} />
-          <span className="navbar-badge-dot" style={{ top: '8px', right: '8px' }} />
-        </button>
-
-        <div className="profile-avatar-card" style={{ cursor: 'default', padding: '8px 16px 8px 12px', borderRadius: '12px' }}>
-          <img
-            src="https://images.unsplash.com/photo-1494790108377-be9c29b29330?w=150"
-            alt="Admin User"
-            className="avatar-img"
-            style={{ width: '36px', height: '36px' }}
-          />
-          <div className="profile-info">
-            <span className="profile-name" style={{ fontSize: '14px' }}>Admin User</span>
-            <span className="profile-role" style={{ fontSize: '11px' }}>Super Admin</span>
+        <div className="profile-avatar-card" style={{ cursor: 'default', padding: '8px 16px', borderRadius: '12px' }}>
+          <div className="profile-info" style={{ display: 'flex', flexDirection: 'column', justifyContent: 'center' }}>
+            <span className="profile-name" style={{ fontSize: '14px', lineHeight: '1.2' }}>Admin User</span>
+            <span className="profile-role" style={{ fontSize: '11px', lineHeight: '1.2', marginTop: '2px' }}>Super Admin</span>
           </div>
         </div>
 
@@ -130,18 +120,6 @@ const Header = () => {
 
             <form onSubmit={handleAddAdminSubmit} style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
               <div className="panel-input-group">
-                <label className="panel-label">Admin ID</label>
-                <input
-                  type="text"
-                  className="panel-input"
-                  placeholder="Enter admin ID"
-                  value={adminId}
-                  onChange={(e) => setAdminId(e.target.value)}
-                  disabled={addAdminLoading}
-                />
-              </div>
-
-              <div className="panel-input-group">
                 <label className="panel-label">Email</label>
                 <input
                   type="email"
@@ -150,6 +128,33 @@ const Header = () => {
                   value={adminEmail}
                   onChange={(e) => setAdminEmail(e.target.value)}
                   disabled={addAdminLoading}
+                  required
+                />
+              </div>
+
+              <div className="panel-input-group">
+                <label className="panel-label">Password</label>
+                <input
+                  type="password"
+                  className="panel-input"
+                  placeholder="Enter password"
+                  value={adminPassword}
+                  onChange={(e) => setAdminPassword(e.target.value)}
+                  disabled={addAdminLoading}
+                  required
+                />
+              </div>
+
+              <div className="panel-input-group">
+                <label className="panel-label">Confirm Password</label>
+                <input
+                  type="password"
+                  className="panel-input"
+                  placeholder="Confirm password"
+                  value={adminConfirmPassword}
+                  onChange={(e) => setAdminConfirmPassword(e.target.value)}
+                  disabled={addAdminLoading}
+                  required
                 />
               </div>
 

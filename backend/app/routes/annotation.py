@@ -85,6 +85,194 @@ def _verify_annotation_ownership(annotation: Annotation, current_user: User) -> 
         )
 
 
+def _export_image_annotation_json(image_id: str, db: Session) -> Optional[str]:
+    """
+    Generate and save a structured, comprehensive JSON document containing
+    true image metadata, dimensions, status, and all associated annotations.
+    Strictly validates and clamps coordinates within [0, img_width] and [0, img_height].
+    """
+    image_rec = db.query(Image).filter(Image.image_id == image_id).first()
+    if not image_rec:
+        return None
+
+    img_path = image_rec.permanent_s3_path or image_rec.temp_s3_path
+    img_w, img_h = 0, 0
+
+    # Determine exact physical image dimensions from image file on disk
+    if img_path and os.path.exists(img_path):
+        import cv2
+        img = cv2.imread(img_path)
+        if img is not None:
+            img_h, img_w = img.shape[:2]
+
+    # Fallback to annotation recorded dimensions if file unreadable
+    if img_w == 0 or img_h == 0:
+        if image_rec.annotations and len(image_rec.annotations) > 0:
+            img_w = image_rec.annotations[0].image_width or 0
+            img_h = image_rec.annotations[0].image_height or 0
+
+    all_anns = db.query(Annotation).filter(Annotation.image_id == image_id).all()
+    formatted_anns = []
+
+    def clamp_x(v: float) -> float:
+        if img_w <= 0: return round(float(v), 2)
+        return round(max(0.0, min(float(img_w), float(v))), 2)
+
+    def clamp_y(v: float) -> float:
+        if img_h <= 0: return round(float(v), 2)
+        return round(max(0.0, min(float(img_h), float(v))), 2)
+
+    for ann in all_anns:
+        cat = db.query(Category).filter(Category.category_id == ann.category_id).first() if ann.category_id else None
+        data = ann.label_data_json or {}
+        raw_type = ann.annotation_type or "polygon"
+        is_ai = bool(ann.ai_generated or raw_type == "ai_polygon")
+        
+        final_type = "polygon" if raw_type in ["polygon", "ai_polygon"] else raw_type
+        source_str = "ai" if is_ai else "manual"
+        
+        bbox_dict = shape_to_bbox_dict(raw_type, data) if data else None
+
+        geometry = {}
+        # 1. Rectangle
+        if final_type == "rectangle":
+            if bbox_dict:
+                x_min = clamp_x(bbox_dict["x_min"])
+                y_min = clamp_y(bbox_dict["y_min"])
+                x_max = clamp_x(bbox_dict["x_max"])
+                y_max = clamp_y(bbox_dict["y_max"])
+                geometry = {
+                    "x": x_min,
+                    "y": y_min,
+                    "width": round(x_max - x_min, 2),
+                    "height": round(y_max - y_min, 2)
+                }
+            else:
+                geometry = data
+        # 2. Circle
+        elif final_type == "circle":
+            if isinstance(data, dict) and "cx" in data:
+                geometry = {
+                    "center": {"x": clamp_x(data["cx"]), "y": clamp_y(data["cy"])},
+                    "radius": round(float(data.get("r", 0)), 2)
+                }
+            elif isinstance(data, dict) and "center" in data:
+                geometry = {
+                    "center": {"x": clamp_x(data["center"].get("x", 0)), "y": clamp_y(data["center"].get("y", 0))},
+                    "radius": round(float(data.get("radius", 0)), 2)
+                }
+            else:
+                geometry = data
+        # 3. Polygon & Freehand
+        elif final_type in ["polygon", "freehand"]:
+            pts = []
+            if isinstance(data, dict) and "points" in data:
+                pts = data["points"]
+            elif isinstance(data, list):
+                pts = data
+
+            clamped_pts = [{"x": clamp_x(p.get("x", 0)), "y": clamp_y(p.get("y", 0))} for p in pts if isinstance(p, dict)]
+            geometry = {"points": clamped_pts}
+        else:
+            geometry = data
+
+        # Standardized Bounding Box
+        clamped_bbox = None
+        if bbox_dict:
+            clamped_bbox = {
+                "x_min": clamp_x(bbox_dict["x_min"]),
+                "y_min": clamp_y(bbox_dict["y_min"]),
+                "x_max": clamp_x(bbox_dict["x_max"]),
+                "y_max": clamp_y(bbox_dict["y_max"])
+            }
+
+        ann_entry = {
+            "annotation_id": ann.annotation_id,
+            "annotation_type": final_type,
+            "category_id": ann.category_id,
+            "class_id": cat.class_code if cat else (ann.category_id or 0),
+            "class_name": cat.class_name if cat else "Waste Object",
+            "source": source_str,
+            "ai_generated": is_ai,
+            "geometry": geometry,
+            "bounding_box": clamped_bbox,
+            "annotated_at": str(ann.annotated_at) if ann.annotated_at else None,
+        }
+        formatted_anns.append(ann_entry)
+
+    export_data = {
+        "image_id": image_rec.image_id,
+        "image_name": image_rec.original_filename,
+        "image_path": img_path,
+        "image_width": img_w,
+        "image_height": img_h,
+        "status": image_rec.status or "annotated",
+        "annotations_count": len(formatted_anns),
+        "annotations": formatted_anns,
+    }
+
+    try:
+        labels_dir = os.path.join(settings.UPLOAD_FOLDER, "labels")
+        os.makedirs(labels_dir, exist_ok=True)
+        export_path = os.path.join(labels_dir, f"{image_id}_annotation.json")
+        with open(export_path, "w") as f:
+            json.dump(export_data, f, indent=2)
+        return export_path
+    except Exception as e:
+        logger.error(f"Failed to export structured annotation JSON for image {image_id}: {e}")
+        return None
+
+
+def _generate_yolo_txt_for_image(image_id: str, db: Session) -> Optional[str]:
+    """Generate YOLO annotation TXT file for all annotations on an image."""
+    image_rec = db.query(Image).filter(Image.image_id == image_id).first()
+    if not image_rec:
+        return None
+
+    annotations = db.query(Annotation).filter(Annotation.image_id == image_id).all()
+    if not annotations:
+        return None
+
+    img_path = image_rec.permanent_s3_path or image_rec.temp_s3_path
+    img_w, img_h = 0, 0
+    if img_path and os.path.exists(img_path):
+        import cv2
+        img = cv2.imread(img_path)
+        if img is not None:
+            img_h, img_w = img.shape[:2]
+
+    if img_w == 0 or img_h == 0:
+        img_w = annotations[0].image_width or 800
+        img_h = annotations[0].image_height or 600
+
+    yolo_lines = []
+    for ann in annotations:
+        if not ann.annotation_type or not ann.label_data_json:
+            continue
+        cat = db.query(Category).filter(Category.category_id == ann.category_id).first() if ann.category_id else None
+        class_id = cat.class_code if cat else (ann.category_id or 0)
+        line = annotation_to_yolo_line(
+            ann.annotation_type,
+            ann.label_data_json,
+            img_w,
+            img_h,
+            class_id,
+        )
+        if line:
+            yolo_lines.append(line)
+
+    if not yolo_lines:
+        return None
+
+    labels_dir = os.path.join(settings.UPLOAD_FOLDER, "labels")
+    os.makedirs(labels_dir, exist_ok=True)
+    txt_path = os.path.join(labels_dir, f"{image_id}.txt")
+    with open(txt_path, "w") as f:
+        f.write("\n".join(yolo_lines) + "\n")
+
+    return txt_path
+
+
 # ---------------------------------------------------------------------------
 # Health check
 # ---------------------------------------------------------------------------
@@ -98,6 +286,7 @@ def health_check():
 # POST / — Create annotation
 # ---------------------------------------------------------------------------
 
+@router.post("", status_code=status.HTTP_201_CREATED)
 @router.post("/", status_code=status.HTTP_201_CREATED)
 def create_annotation(
     body: AnnotationCreate,
@@ -131,13 +320,12 @@ def create_annotation(
         # If annotation_type is not specified but label_data is, save label_data as-is
         validated_data = body.label_data
 
-    # 4. Save label_data as JSON file if provided (legacy backward compatibility)
+    # 4. Save label_data as JSON file if provided
     label_json_path = None
     if body.label_data is not None:
         labels_dir = os.path.join(settings.UPLOAD_FOLDER, "labels")
         os.makedirs(labels_dir, exist_ok=True)
-        import uuid
-        label_filename = f"{uuid.uuid4()}.json"
+        label_filename = f"{body.image_id}_annotation.json"
         label_json_path = os.path.join(labels_dir, label_filename)
         with open(label_json_path, "w") as f:
             json.dump(body.label_data, f)
@@ -155,8 +343,32 @@ def create_annotation(
         label_json_path=label_json_path,
     )
     db.add(new_annotation)
+
+    # 6. Update image category & status
+    image_rec = db.query(Image).filter(Image.image_id == body.image_id).first()
+    if image_rec:
+        if body.category_id is not None:
+            image_rec.selected_category_id = body.category_id
+        image_rec.status = "annotated"
+        image_rec.annotated_at = datetime.now(timezone.utc)
+        db.add(image_rec)
+
     db.commit()
     db.refresh(new_annotation)
+
+    # 7. Generate YOLO TXT & promote image and labels to uploads/dataset/{category_slug}/
+    yolo_txt_path = _generate_yolo_txt_for_image(body.image_id, db)
+    if yolo_txt_path:
+        new_annotation.yolo_label_path = yolo_txt_path
+        db.commit()
+        try:
+            from app.services.lifecycle_service import promote_to_permanent
+            promote_to_permanent(db, body.image_id, yolo_txt_path)
+        except Exception as exc:
+            logger.warning(f"Auto-promotion to dataset folder note: {exc}")
+
+    # 8. Generate full structured annotation JSON export
+    _export_image_annotation_json(body.image_id, db)
 
     logger.info(
         "ANNOTATION_CREATED | annotation_id=%s | image_id=%s | type=%s | user=%s | ai=%s",

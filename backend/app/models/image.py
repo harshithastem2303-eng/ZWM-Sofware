@@ -25,16 +25,28 @@ class Image(Base):
     # -- Dataset split -------------------------------------------------------
     split_type = Column(String(10), nullable=True)
 
+    # -- Category selection & AI validation ----------------------------------
+    selected_category_id = Column(Integer, ForeignKey("categories.category_id"), nullable=True)
+    ai_predicted_category = Column(String(50), nullable=True)
+    ai_confidence_score = Column(Float, nullable=True)
+    validation_result = Column(String(50), nullable=True)  # AUTO_ACCEPTED, NEEDS_HUMAN_REVIEW, LOW_CONFIDENCE, CLASS_MISMATCH, MODEL_CLASS_NOT_SUPPORTED
+    validation_reason = Column(Text, nullable=True)
+
+    # -- Admin Review audit fields -------------------------------------------
+    reviewed_by = Column(String(36), ForeignKey("users.user_id"), nullable=True)
+    reviewed_at = Column(DateTime(timezone=True), nullable=True)
+
     # -- Status / validation -------------------------------------------------
     # Lifecycle statuses:
-    #   uploaded          - initial state after validation passes
-    #   rejected          - image failed validation at upload
-    #   annotated         - annotation has been completed
-    #   yolo_ready        - YOLO TXT generated and validated
-    #   approved          - admin approved (legacy; also triggers promote)
-    #   permanent         - successfully moved to permanent storage
-    #   conversion_failed - YOLO conversion failed; stays in temp
-    #   expired_cleaned   - temp image expired and was cleaned up
+    #   uploaded             - initial state after upload
+    #   pending_admin_review - needs admin review (mismatch / low confidence / unsupported class)
+    #   approved             - auto-accepted or admin approved
+    #   rejected             - image failed validation / admin rejected
+    #   annotated            - annotation has been completed
+    #   yolo_ready           - YOLO TXT generated and validated
+    #   permanent            - successfully moved to permanent storage
+    #   conversion_failed    - YOLO conversion failed; stays in temp
+    #   expired_cleaned      - temp image expired and was cleaned up
     status = Column(String(30), default="uploaded")
     is_validated = Column(Boolean, default=False)
 
@@ -53,6 +65,10 @@ class Image(Base):
 
     # -- Relationships -------------------------------------------------------
     annotations = relationship("Annotation", backref="image", lazy=True, cascade="all, delete-orphan")
+    selected_category = relationship("Category", foreign_keys=[selected_category_id], lazy="joined")
+    reviewer = relationship("User", foreign_keys=[reviewed_by], lazy="select")
+
+
 
     # -- Indexes (defined at table level for query performance) ---------------
     __table_args__ = (

@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { adminLogin, storeToken, isAuthenticated } from '../services/api';
-import { Mail, Lock, Eye, EyeOff, LogIn, AlertCircle } from 'lucide-react';
+import { Eye, EyeOff, LogIn, AlertCircle } from 'lucide-react';
 
 const AdminLogin = () => {
   const navigate = useNavigate();
@@ -54,7 +54,11 @@ const AdminLogin = () => {
       // Redirect to dashboard
       navigate('/admin/dashboard');
     } catch (err) {
-      setError(err.message || 'Invalid email or password.');
+      if (err.message && err.message.toLowerCase().includes('failed to fetch')) {
+        setError('Unable to connect to backend server. Please verify the backend API (uvicorn) is running on port 8000.');
+      } else {
+        setError(err.message || 'Invalid email or password.');
+      }
     } finally {
       setLoading(false);
     }
@@ -109,7 +113,7 @@ const AdminLogin = () => {
           </div>
         )}
 
-        <form onSubmit={handleSubmit}>
+        <form onSubmit={handleSubmit} autoComplete="off">
           {/* Email Field */}
           <div className="form-group">
             <div className="input-icon-wrapper">
@@ -117,11 +121,11 @@ const AdminLogin = () => {
                 type="email"
                 className="form-input"
                 placeholder="Admin Email"
+                autoComplete="off"
                 value={email}
                 onChange={(e) => setEmail(e.target.value)}
                 disabled={loading}
               />
-              <Mail className="input-icon" />
             </div>
           </div>
 
@@ -132,11 +136,11 @@ const AdminLogin = () => {
                 type={showPassword ? 'text' : 'password'}
                 className="form-input"
                 placeholder="Password"
+                autoComplete="off"
                 value={password}
                 onChange={(e) => setPassword(e.target.value)}
                 disabled={loading}
               />
-              <Lock className="input-icon" />
               <button
                 type="button"
                 className="password-toggle-btn"
@@ -144,12 +148,12 @@ const AdminLogin = () => {
                 disabled={loading}
                 aria-label={showPassword ? 'Hide password' : 'Show password'}
               >
-                {showPassword ? <EyeOff /> : <Eye />}
+                {showPassword ? <EyeOff size={18} /> : <Eye size={18} />}
               </button>
             </div>
           </div>
 
-          {/* Remember Me and Forgot Password */}
+          {/* Remember Me */}
           <div className="form-meta">
             <label className="checkbox-label">
               <input
@@ -161,9 +165,6 @@ const AdminLogin = () => {
               />
               Remember me
             </label>
-            <a href="#" className="forgot-password-link" onClick={(e) => { e.preventDefault(); alert('Please contact the IT administrator to reset your password.'); }}>
-              Forgot Password?
-            </a>
           </div>
 
           {/* Login Submit Button */}
@@ -187,3 +188,4 @@ const AdminLogin = () => {
 };
 
 export default AdminLogin;
+

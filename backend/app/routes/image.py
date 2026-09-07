@@ -38,19 +38,38 @@ def health_check():
     return {"status": "ok", "service": "image"}
 
 
+from typing import Optional
+from fastapi import Form
+from app.models.category import Category
+from app.services.image_validator import validate_image, validate_ai_category_match
+
+
 @router.post("/upload", status_code=status.HTTP_201_CREATED)
 def upload_image(
     file: UploadFile = File(...),
+    selected_category_id: Optional[int] = Form(None),
+    category_id: Optional[int] = Form(None),
     current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
     """
-    Upload and validate an image.
+    Upload and validate an image against user-selected admin category.
 
-    The image is stored in temporary storage (uploads/temporary/{user_id}/).
-    temporary_expires_at is set to now + TEMP_EXPIRY_DAYS (default 7 days).
-    Status is set to 'uploaded' (backward-compatible).
+    - Validates image extension, corrupt file check, and format.
+    - Validates category exists and is active.
+    - Runs independent AI prediction vs user-selected class validation:
+      - High confidence match (>=80%) -> AUTO_ACCEPTED ('approved')
+      - Low confidence / Mismatch / Unsupported class -> PENDING_ADMIN_REVIEW ('pending_admin_review')
     """
+    # Check Platform Maintenance Mode from SystemSetting
+    from app.models.setting import SystemSetting
+    sys_setting = db.query(SystemSetting).filter(SystemSetting.id == 1).first()
+    if sys_setting and sys_setting.maintenance_mode:
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="Platform Maintenance Mode is currently active. Uploads are temporarily locked during maintenance."
+        )
+
     # Validate extension
     ext = os.path.splitext(file.filename or "")[1].lower()
     if ext not in ALLOWED_EXTENSIONS:
@@ -58,6 +77,16 @@ def upload_image(
             status_code=400,
             detail=f"File type '{ext}' not allowed. Use: {', '.join(ALLOWED_EXTENSIONS)}",
         )
+
+    target_category_id = selected_category_id if selected_category_id is not None else category_id
+    selected_category = None
+
+    if target_category_id is not None:
+        selected_category = db.query(Category).filter(Category.category_id == target_category_id).first()
+        if not selected_category:
+            raise HTTPException(status_code=400, detail=f"Category ID {target_category_id} not found.")
+        if not selected_category.is_active:
+            raise HTTPException(status_code=400, detail=f"Category '{selected_category.class_name}' is currently inactive.")
 
     # Generate IDs and paths
     image_id = str(uuid.uuid4())
@@ -73,13 +102,47 @@ def upload_image(
     with open(file_path, "wb") as f:
         shutil.copyfileobj(file.file, f)
 
-    # Run image validation pipeline
-    validation_result = validate_image(file_path)
-    img_status = "uploaded" if validation_result["valid"] else "rejected"
+    # 1. Run basic image format/corruption checks
+    base_validation = validate_image(file_path)
+    if not base_validation["valid"]:
+        if os.path.exists(file_path):
+            os.remove(file_path)
+        reason_key = base_validation.get("reason", "")
+        checks = base_validation.get("checks", {})
+        err_msg = f"Image validation failed: {reason_key}"
+        if reason_key in checks and isinstance(checks[reason_key], dict) and "message" in checks[reason_key]:
+            err_msg = checks[reason_key]["message"]
+        raise HTTPException(status_code=400, detail=err_msg)
+
+    # 2. Run AI Class Match Validation
+    ai_predicted_cat = None
+    ai_conf_score = None
+    val_result = "UNSPECIFIED_CATEGORY"
+    val_status = "uploaded"
+    val_reason = "No category selected."
+    is_val = False
+
+    if selected_category:
+        ai_eval = validate_ai_category_match(file_path, selected_category.class_name)
+        ai_predicted_cat = ai_eval.get("predicted_category")
+        ai_conf_score = ai_eval.get("confidence")
+        val_result = ai_eval.get("validation_result")
+        val_status = ai_eval.get("status")
+        val_reason = ai_eval.get("reason")
+        is_val = ai_eval.get("is_validated", False)
 
     # Compute expiry
     now = datetime.now(timezone.utc)
     expires_at = now + timedelta(days=settings.TEMP_EXPIRY_DAYS)
+
+    # Award credits if auto-accepted
+    credits = 0
+    reward_given = False
+    if val_status == "approved":
+        credits = 10
+        reward_given = True
+        current_user.reward_points = (current_user.reward_points or 0) + 10
+        current_user.image_count = (current_user.image_count or 0) + 1
 
     # Create DB record
     new_image = Image(
@@ -88,16 +151,36 @@ def upload_image(
         original_filename=file.filename or safe_filename,
         storage_type="local",
         temp_s3_path=file_path,
-        status=img_status,
+        selected_category_id=selected_category.category_id if selected_category else None,
+        ai_predicted_category=ai_predicted_cat,
+        ai_confidence_score=ai_conf_score,
+        validation_result=val_result,
+        validation_reason=val_reason,
+        status=val_status,
+        is_validated=is_val,
+        reward_given=reward_given,
+        credits_awarded=credits,
         temporary_expires_at=expires_at,
     )
     db.add(new_image)
     db.commit()
     db.refresh(new_image)
 
-    # Remove file from disk if validation failed
-    if not validation_result["valid"] and os.path.exists(file_path):
-        os.remove(file_path)
+    return {
+        "message": "Image uploaded successfully",
+        "image_id": image_id,
+        "status": new_image.status,
+        "validation": base_validation,
+        "validation_result": new_image.validation_result,
+        "validation_reason": new_image.validation_reason,
+        "ai_predicted_category": new_image.ai_predicted_category,
+        "ai_confidence_score": new_image.ai_confidence_score,
+        "selected_category_id": new_image.selected_category_id,
+        "selected_category_name": selected_category.class_name if selected_category else None,
+        "credits_awarded": new_image.credits_awarded,
+        "uploaded_at": str(new_image.uploaded_at) if new_image.uploaded_at else None,
+    }
+
 
     logger.info(
         "IMAGE_UPLOADED | image_id=%s | user_id=%s | status=%s | expires_at=%s",

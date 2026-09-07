@@ -63,6 +63,15 @@ class UserProfile(BaseModel):
 class CategoryCreate(BaseModel):
     class_name: str
     class_code: int
+    description: Optional[str] = None
+    is_active: Optional[bool] = True
+
+
+class CategoryUpdate(BaseModel):
+    class_name: Optional[str] = None
+    class_code: Optional[int] = None
+    description: Optional[str] = None
+    is_active: Optional[bool] = None
 
 
 class CategoryResponse(BaseModel):
@@ -71,7 +80,11 @@ class CategoryResponse(BaseModel):
     category_id: int
     class_name: str
     class_code: int
+    description: Optional[str] = None
+    is_active: bool = True
     validated_count: int
+    created_at: Optional[datetime] = None
+
 
 
 # ---------------------------------------------------------------------------
@@ -277,3 +290,45 @@ class LeaderboardEntry(BaseModel):
     full_name: Optional[str] = None
     reward_points: int
     image_count: int
+
+
+# ---------------------------------------------------------------------------
+# System Settings Schemas
+# ---------------------------------------------------------------------------
+
+class SystemSettingUpdate(BaseModel):
+    platform_name: Optional[str] = None
+    admin_email: Optional[str] = None
+    api_base_url: Optional[str] = None
+    maintenance_mode: Optional[bool] = None
+    active_model: Optional[str] = None
+    epochs: Optional[int] = None
+    image_size: Optional[str] = None
+    batch_size: Optional[int] = None
+    device: Optional[str] = None
+    optimizer: Optional[str] = None
+    learning_rate: Optional[float] = None
+    auto_retrain_count: Optional[int] = None
+    confidence_threshold: Optional[float] = None
+    auto_train_toggle: Optional[bool] = None
+
+
+class SystemSettingResponse(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    platform_name: str
+    admin_email: str
+    api_base_url: str
+    maintenance_mode: bool
+    active_model: str
+    epochs: int
+    image_size: str
+    batch_size: int
+    device: str
+    optimizer: str
+    learning_rate: float
+    auto_retrain_count: int
+    confidence_threshold: float
+    auto_train_toggle: bool
+    updated_at: Optional[datetime] = None
+

@@ -15,7 +15,10 @@ def check_dataset_readiness(db: Session):
     if not categories:
         return False, []
 
-    threshold = settings.CATEGORY_VALIDATED_THRESHOLD
+    from app.models.setting import SystemSetting
+    sys_setting = db.query(SystemSetting).filter(SystemSetting.id == 1).first()
+    threshold = sys_setting.auto_retrain_count if sys_setting else settings.CATEGORY_VALIDATED_THRESHOLD
+
     stats = []
     for cat in categories:
         count = cat.validated_count or 0
@@ -34,15 +37,9 @@ def check_dataset_readiness(db: Session):
 
 def trigger_training_job(db: Session, version: str, class_counts: dict = None):
     """
-    Create a new training job record. Does NOT actually run training —
-    that requires external infrastructure (GPU worker, dataset on disk, etc.).
-    Returns the created TrainingJob or None if dataset is not ready.
+    Create a new training job record and queue it for execution.
+    Allows admin manual trigger or automated trigger.
     """
-    ready, _ = check_dataset_readiness(db)
-
-    if not ready:
-        return None
-
     new_job = TrainingJob(
         version=version,
         class_counts=class_counts,

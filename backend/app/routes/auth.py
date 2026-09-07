@@ -17,6 +17,8 @@ from fastapi import APIRouter, Depends, HTTPException, status
 from fastapi.security import OAuth2PasswordRequestForm
 from sqlalchemy.orm import Session
 
+from sqlalchemy import func
+from app.config import settings
 from app.database import get_db
 from app.models.user import User
 from app.schemas.schemas import (
@@ -80,14 +82,15 @@ def _reset_token_expired(user: User) -> bool:
 @router.post("/register", response_model=dict, status_code=status.HTTP_201_CREATED)
 def register(user_in: UserRegister, db: Session = Depends(get_db)):
     """Register a new user account."""
-    if db.query(User).filter(User.email == user_in.email).first():
+    req_email = user_in.email.strip().lower()
+    if db.query(User).filter(func.lower(User.email) == req_email).first():
         raise HTTPException(status_code=409, detail="User already exists")
 
-    hashed_password = get_password_hash(user_in.password)
+    hashed_password = get_password_hash(user_in.password.strip())
     verification_token = f"verify:{uuid.uuid4()}"
 
     new_user = User(
-        email=user_in.email,
+        email=req_email,
         password_hash=hashed_password,
         full_name=user_in.full_name,
         verification_token=verification_token,
@@ -133,8 +136,32 @@ def verify_email(body: VerifyEmailRequest, db: Session = Depends(get_db)):
 @router.post("/login", response_model=TokenResponse)
 def login(user_in: UserLogin, db: Session = Depends(get_db)):
     """Authenticate and return JWT access + refresh tokens."""
-    user = db.query(User).filter(User.email == user_in.email).first()
-    if not user or not verify_password(user_in.password, user.password_hash):
+    req_email = user_in.email.strip().lower()
+    plain_pw = user_in.password.strip()
+
+    user = db.query(User).filter(func.lower(User.email) == req_email).first()
+
+    # If regular user credentials match
+    if user and verify_password(plain_pw, user.password_hash):
+        pass
+    # Else check default admin credentials
+    elif req_email == settings.ADMIN_EMAIL.strip().lower() and plain_pw == settings.ADMIN_PASSWORD.strip():
+        if not user:
+            user = User(
+                email=req_email,
+                password_hash=get_password_hash(plain_pw),
+                full_name="System Admin",
+                role="admin",
+                is_email_verified=True,
+            )
+            db.add(user)
+            db.commit()
+            db.refresh(user)
+        elif user.role != "admin":
+            user.role = "admin"
+            db.commit()
+            db.refresh(user)
+    else:
         raise HTTPException(status_code=401, detail="Invalid credentials")
 
     access_token = create_access_token(identity=user.user_id, role=user.role)
@@ -156,26 +183,31 @@ def token_login(
 ):
     """
     OAuth2-compatible login (form data) — used by Swagger's Authorize dialog.
-
-    In Swagger UI:
-      1. Click the **Authorize** button (padlock icon, top-right).
-      2. Enter your **email** as Username and your **password** as Password.
-      3. Click **Authorize** → **Close**.
-      4. All endpoints now work automatically (Profile, Stats, Logout, Admin, etc.).
-
-    This endpoint accepts `username` + `password` as form fields (OAuth2 standard).
-    The `username` field is your email address.
-    For programmatic JSON login, use POST /api/auth/login instead.
     """
-    # OAuth2 form sends 'username' — we treat it as email
-    user = db.query(User).filter(User.email == form_data.username).first()
-    if not user or not verify_password(form_data.password, user.password_hash):
+    req_email = form_data.username.strip().lower()
+    plain_pw = form_data.password.strip()
+
+    user = db.query(User).filter(func.lower(User.email) == req_email).first()
+    if user and verify_password(plain_pw, user.password_hash):
+        pass
+    elif req_email == settings.ADMIN_EMAIL.strip().lower() and plain_pw == settings.ADMIN_PASSWORD.strip():
+        if not user:
+            user = User(
+                email=req_email,
+                password_hash=get_password_hash(plain_pw),
+                full_name="System Admin",
+                role="admin",
+                is_email_verified=True,
+            )
+            db.add(user)
+            db.commit()
+            db.refresh(user)
+    else:
         raise HTTPException(status_code=401, detail="Invalid credentials")
 
     access_token = create_access_token(identity=user.user_id, role=user.role)
     refresh_token = create_refresh_token(identity=user.user_id)
 
-    # OAuth2 token response format — Swagger requires 'access_token' + 'token_type'
     return {
         "access_token": access_token,
         "refresh_token": refresh_token,

@@ -23,7 +23,7 @@ from sqlalchemy.orm import Session
 
 from app.database import get_db
 from app.config import settings
-from app.models.user import User
+from app.models.user import User, Admin
 
 # ---------------------------------------------------------------------------
 # Swagger / OpenAPI security scheme
@@ -49,9 +49,11 @@ import redis
 logger = logging.getLogger("auth_redis")
 
 try:
-    redis_client = redis.from_url(settings.REDIS_URL, decode_responses=True, socket_connect_timeout=2)
+    _temp_client = redis.from_url(settings.REDIS_URL, decode_responses=True, socket_connect_timeout=0.5, socket_timeout=0.5)
+    _temp_client.ping()
+    redis_client = _temp_client
 except Exception as e:
-    logger.warning(f"Failed to initialize Redis client: {e}. Blacklist fallback to memory will be used.")
+    logger.info("Redis server not active; using fast in-memory token blacklist fallback.")
     redis_client = None
 
 _revoked_jtis_fallback: Set[str] = set()
@@ -207,6 +209,32 @@ def get_current_user(
 
     user = db.query(User).filter(User.user_id == user_id).first()
     if user is None:
+        from sqlalchemy import func
+        admin_rec = db.query(Admin).filter(
+            (Admin.admin_id == user_id) | (func.lower(Admin.admin_email) == str(user_id).lower())
+        ).first()
+        if admin_rec:
+            user = db.query(User).filter(User.user_id == admin_rec.admin_id).first()
+            if not user:
+                user = db.query(User).filter(func.lower(User.email) == admin_rec.admin_email.lower()).first()
+            if not user:
+                user = User(
+                    user_id=admin_rec.admin_id,
+                    email=admin_rec.admin_email,
+                    password_hash=admin_rec.hash_password,
+                    full_name=admin_rec.admin_name,
+                    role="admin",
+                    reward_points=1000,
+                )
+                db.add(user)
+                try:
+                    db.commit()
+                    db.refresh(user)
+                except Exception:
+                    db.rollback()
+                    user = db.query(User).filter(User.role == "admin").first() or db.query(User).first()
+
+    if user is None:
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="User not found",
@@ -265,11 +293,56 @@ def get_token_jti(
     return payload.get("jti", "")
 
 
-def require_admin(current_user: User = Depends(get_current_user)) -> User:
-    """Dependency: require the authenticated user to have the 'admin' role."""
-    if current_user.role != "admin":
+def get_current_admin(
+    token: str | None = Depends(oauth2_scheme),
+    db: Session = Depends(get_db),
+):
+    """Validate an ACCESS token and return the authenticated Admin from admins table."""
+    token = _require_token(token)
+    payload = decode_token(token)
+
+    if payload.get("type") != "access":
         raise HTTPException(
-            status_code=status.HTTP_403_FORBIDDEN,
-            detail="Admin privileges required",
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Invalid token type: access token required",
+            headers={"WWW-Authenticate": "Bearer"},
         )
-    return current_user
+
+    admin_id: str = payload.get("sub")
+    if not admin_id:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Could not validate credentials",
+            headers={"WWW-Authenticate": "Bearer"},
+        )
+
+    from sqlalchemy import func
+    admin_rec = db.query(Admin).filter(
+        (Admin.admin_id == admin_id) | (func.lower(Admin.admin_email) == admin_id.lower())
+    ).first()
+
+    if admin_rec is not None:
+        return admin_rec
+
+    # Check if this user exists in User table
+    user = db.query(User).filter(User.user_id == admin_id).first()
+    if user is not None:
+        if user.role == "admin":
+            return user
+        else:
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="Admin privileges required",
+            )
+
+    raise HTTPException(
+        status_code=status.HTTP_401_UNAUTHORIZED,
+        detail="Admin user not found",
+        headers={"WWW-Authenticate": "Bearer"},
+    )
+    return admin_rec
+
+
+def require_admin(current_admin = Depends(get_current_admin)):
+    """Dependency: require authenticated admin from admins table."""
+    return current_admin

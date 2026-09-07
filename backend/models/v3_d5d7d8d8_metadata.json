@@ -1,0 +1,1 @@
+{"job_id": "d5d7d8d8-a837-45a3-9cc7-5ffe4408dd17", "version": "v3", "status": "failed", "error": "Dataset preparation failed: (builtins.str) Database connection lost\n[SQL: SELECT 1]\n(Background on this error at: https://sqlalche.me/e/20/e3q8)", "failed_at": "2026-09-01 17:52:39.125827+00:00"}
