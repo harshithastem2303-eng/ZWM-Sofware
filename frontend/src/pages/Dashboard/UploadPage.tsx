@@ -140,7 +140,6 @@ export const UploadPage: React.FC = () => {
     setPreviewUrl(null);
     setErrorMessage(null);
     if (fileInputRef.current) fileInputRef.current.value = '';
-    if (cameraInputRef.current) cameraInputRef.current.value = '';
   };
 
   const handleUploadAndAnnotate = async () => {

@@ -1,0 +1,1 @@
+{"job_id": "8b026b78-031d-4d28-9162-05d5cb4408eb", "version": "v1", "run_name": "train_v1_8b026b78", "metrics": {"map50": 0.5}, "data_yaml": "E:\\Users\\subha\\OneDrive\\Desktop\\demo\\backend\\worker\\datasets\\8b026b78-031d-4d28-9162-05d5cb4408eb\\data.yaml"}

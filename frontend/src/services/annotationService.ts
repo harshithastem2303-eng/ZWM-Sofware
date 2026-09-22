@@ -15,6 +15,7 @@ export interface AIPolygonResult {
 export interface AIPolygonClickResponse {
   status: string;
   polygon: AIPolygonResult;
+  raw_polygon?: AIPolygonResult;
   x: number;
   y: number;
 }
