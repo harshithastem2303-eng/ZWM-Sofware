@@ -3,7 +3,7 @@ Pydantic schemas for request/response validation.
 
 Uses Pydantic v2 ConfigDict instead of deprecated class-based Config.
 """
-from pydantic import BaseModel, EmailStr, ConfigDict, field_validator
+from pydantic import BaseModel, EmailStr, ConfigDict, Field, field_validator
 from typing import Optional, Any
 from datetime import datetime
 
@@ -308,7 +308,8 @@ class SystemSettingUpdate(BaseModel):
     device: Optional[str] = None
     optimizer: Optional[str] = None
     learning_rate: Optional[float] = None
-    auto_retrain_count: Optional[int] = None
+    # Training milestone threshold (A1): must be a positive number of images.
+    auto_retrain_count: Optional[int] = Field(default=None, ge=1)
     confidence_threshold: Optional[float] = None
     auto_train_toggle: Optional[bool] = None
 
@@ -332,3 +333,97 @@ class SystemSettingResponse(BaseModel):
     auto_train_toggle: bool
     updated_at: Optional[datetime] = None
 
+
+class EvaluationPolicyUpdate(BaseModel):
+    """Admin quality-gate policy (Block A3). Omitted fields are unchanged; null clears a gate."""
+    model_config = ConfigDict(extra="forbid")
+
+    min_test_images: Optional[int] = Field(default=None, ge=1, le=1_000_000)
+    min_objects_per_class: Optional[int] = Field(default=None, ge=1, le=1_000_000)
+    require_class_coverage: Optional[bool] = None
+    min_map50: Optional[float] = Field(default=None, ge=0.0, le=1.0)
+    min_map50_95: Optional[float] = Field(default=None, ge=0.0, le=1.0)
+    min_precision: Optional[float] = Field(default=None, ge=0.0, le=1.0)
+    min_recall: Optional[float] = Field(default=None, ge=0.0, le=1.0)
+    min_class_recall: Optional[float] = Field(default=None, ge=0.0, le=1.0)
+    max_map50_regression: Optional[float] = Field(default=None, ge=0.0, le=1.0)
+
+
+# ---- Controlled model deployment (Block A4) ----
+
+class CandidateApprovalRequest(BaseModel):
+    """Approve exactly the evaluation the administrator reviewed."""
+    model_config = ConfigDict(extra="forbid")
+
+    evaluation_id: str = Field(min_length=1, max_length=36)
+    reason: Optional[str] = Field(default=None, max_length=2000)
+
+
+class CandidateRejectionRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    evaluation_id: str = Field(min_length=1, max_length=36)
+    reason: str = Field(min_length=3, max_length=2000)
+
+    @field_validator("reason")
+    @classmethod
+    def _reason_not_blank(cls, v: str) -> str:
+        if len(v.strip()) < 3:
+            raise ValueError("a rejection reason is required")
+        return v.strip()
+
+
+class ModelActivationRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    reason: Optional[str] = Field(default=None, max_length=2000)
+
+
+class ModelRollbackRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    reason: str = Field(min_length=3, max_length=2000)
+    target_model_id: Optional[str] = Field(default=None, min_length=1, max_length=36)
+
+    @field_validator("reason")
+    @classmethod
+    def _reason_not_blank(cls, v: str) -> str:
+        if len(v.strip()) < 3:
+            raise ValueError("a rollback reason is required")
+        return v.strip()
+
+
+# ---------------------------------------------------------------------------
+# Prediction feedback (Block A6.2)
+# ---------------------------------------------------------------------------
+
+class PredictionFeedbackCreate(BaseModel):
+    """A user's report that an A6.1 prediction was wrong. Per-type rules: feedback_service."""
+    model_config = ConfigDict(extra="forbid")
+
+    feedback_type: str = Field(pattern="^(incorrect_class|incorrect_geometry|missed_object|false_detection|other)$")
+    detection_index: Optional[int] = Field(default=None, ge=0, le=10_000)
+    explanation: Optional[str] = Field(default=None, max_length=2000)
+    suggested_category_id: Optional[int] = Field(default=None, ge=1)
+    suggested_geometry: Optional[dict] = None
+
+
+class FeedbackDecisionRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    reason: Optional[str] = Field(default=None, max_length=2000)
+
+
+class LabelRevisionFromFeedback(BaseModel):
+    """Block A6.3: apply one approved feedback as a draft label revision."""
+    model_config = ConfigDict(extra="forbid")
+
+    reason: str = Field(max_length=2000)
+    target_object_key: Optional[str] = Field(default=None, max_length=36)
+    category_id: Optional[int] = Field(default=None, ge=1)
+
+
+class LabelRevisionReason(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    reason: Optional[str] = Field(default=None, max_length=2000)

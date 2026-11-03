@@ -16,6 +16,7 @@ export interface AIPolygonClickResponse {
   status: string;
   polygon: AIPolygonResult;
   raw_polygon?: AIPolygonResult;
+  prediction_id?: string;   // Block A6.1 provenance record of this suggestion
   x: number;
   y: number;
 }
@@ -24,6 +25,7 @@ export interface AISegmentResponse {
   status: string;
   count: number;
   polygons: AIPolygonResult[];
+  prediction_id?: string;
 }
 
 export const annotationService = {

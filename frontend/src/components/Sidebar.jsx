@@ -1,5 +1,5 @@
 import React from 'react';
-import { Home, Users, BarChart2, Settings as SettingsIcon, LogOut, CheckSquare } from 'lucide-react';
+import { Home, Users, BarChart2, Settings as SettingsIcon, LogOut, CheckSquare, Cpu, Activity, MessageSquareWarning, History } from 'lucide-react';
 
 const Sidebar = ({ activeTab, setActiveTab, onLogout }) => {
   const menuItems = [
@@ -7,6 +7,10 @@ const Sidebar = ({ activeTab, setActiveTab, onLogout }) => {
     { id: 'validation', label: 'Validation', icon: CheckSquare },
     { id: 'users', label: 'Users', icon: Users },
     { id: 'reports', label: 'Reports', icon: BarChart2 },
+    { id: 'models', label: 'Models', icon: Cpu },
+    { id: 'monitoring', label: 'Monitoring', icon: Activity },
+    { id: 'feedback', label: 'AI Feedback', icon: MessageSquareWarning },
+    { id: 'label-revisions', label: 'Label Revisions', icon: History },
     { id: 'settings', label: 'Settings', icon: SettingsIcon },
   ];
 

@@ -13,6 +13,9 @@ class Category(Base):
     description = Column(Text, nullable=True)
     is_active = Column(Boolean, default=True, nullable=False)
     validated_count = Column(Integer, default=0)
+    # Contiguous YOLO class index (0..N-1). Assigned once, never renumbered.
+    # Business class_code is kept separately and is NEVER written to YOLO TXT.
+    yolo_class_index = Column(Integer, unique=True, nullable=True)
     created_at = Column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc))
 
-    annotations = relationship("Annotation", backref="category", lazy=True)
+    annotations = relationship("Annotation", backref="category", lazy=True)

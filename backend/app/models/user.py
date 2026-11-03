@@ -35,6 +35,7 @@ class User(Base):
 
     images = relationship("Image", foreign_keys="Image.user_id", backref="user", lazy=True, cascade="all, delete-orphan")
     annotations = relationship("Annotation", backref="annotator", lazy=True)
+    reward_transactions = relationship("RewardTransaction", foreign_keys="RewardTransaction.user_id", backref="user", lazy=True, cascade="all, delete-orphan")
 
 
 

@@ -27,7 +27,7 @@ RUN pip install --no-cache-dir --upgrade pip && \
 COPY . .
 
 # Create models and uploads directory, adjusting permissions
-RUN mkdir -p models uploads/temporary uploads/permanent && \
+RUN mkdir -p models uploads/temporary uploads/dataset && \
     chmod -R 777 models uploads
 
 # Expose port

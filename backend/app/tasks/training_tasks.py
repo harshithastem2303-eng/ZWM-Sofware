@@ -13,6 +13,8 @@ from app.models.training import TrainingJob, ModelVersion
 from app.models.category import Category
 from app.config import settings
 
+from app.services.model_evaluation_service import ultralytics_evaluate, ultralytics_model_names
+
 # Reuse core functions from training_worker
 from worker.training_worker import (
     build_dataset_from_permanent,
@@ -53,6 +55,20 @@ def _mark_job_failed(db, job, error_msg: str):
 def train_model(self, training_job_id: str):
     logger.info(f"celery_training: Task received for job {training_job_id}", extra={"job_id": training_job_id, "status": "queued"})
     
+    # Snapshot (automatic) jobs: leased, fenced, candidate-only runtime (Block A2.1).
+    probe = SessionLocal()
+    try:
+        snapshot_id = probe.query(TrainingJob.snapshot_id).filter(TrainingJob.job_id == training_job_id).scalar()
+    finally:
+        probe.close()
+    if snapshot_id is not None:
+        from app.services.training_pipeline_service import run_snapshot_job
+        return run_snapshot_job(
+            training_job_id,
+            session_factory=SessionLocal,
+            train_fn=run_ultralytics_training,
+        )
+
     db = SessionLocal()
     try:
         # Atomic lock / claim job using row locking with skip_locked
@@ -120,25 +136,13 @@ def train_model(self, training_job_id: str):
             _mark_job_failed(db, job, f"Failed to save final weights: {str(e)}")
             return f"Job {training_job_id} failed during weights saving"
             
-        # Atomically update the configured active model path (best-effort)
+        # Register the model (inactive). Activation goes through the A4 deployment
+        # engine below, never by writing YOLO_MODEL_PATH / is_current here (A4.1).
         try:
-            target_model_path = Path(settings.YOLO_MODEL_PATH)
-            target_model_path.parent.mkdir(parents=True, exist_ok=True)
-            tmp_target = target_model_path.with_suffix('.tmp')
-            shutil.copy2(dest_path, tmp_target)
-            os.replace(tmp_target, target_model_path)
-        except Exception as e:
-            logger.warning(f"celery_training: Failed to update active YOLO path: {e}")
-            
-        # Update DB models versioning
-        try:
-            # Unset current model version
-            db.query(ModelVersion).filter(ModelVersion.is_current == True).update({"is_current": False})
-            
             new_model = ModelVersion(
                 job_id=job.job_id,
                 version=job.version,
-                is_current=True,
+                is_current=False,
                 map_score=(metrics.get('map50') if isinstance(metrics, dict) else None),
             )
             db.add(new_model)
@@ -169,7 +173,11 @@ def train_model(self, training_job_id: str):
             logger.exception(f"celery_training: Database error when saving metrics/version for job {training_job_id}")
             _mark_job_failed(db, job, f"Database finalization failed: {str(db_err)}")
             return f"Job {training_job_id} failed during database finalization"
-            
+
+        from app.services.model_deployment_service import activate_after_legacy_training
+        activation = activate_after_legacy_training(db, new_model.model_id)
+        logger.info(f"celery_training: legacy model activation for job {training_job_id}: {activation}")
+
         # Cleanup dataset folder
         try:
             if dataset_dir.exists():
@@ -177,7 +185,7 @@ def train_model(self, training_job_id: str):
         except Exception:
             pass
             
-        return f"Job {training_job_id} completed successfully"
+        return f"Job {training_job_id} completed successfully (activation: {activation})"
         
     except (OperationalError, ConnectionError, TimeoutError) as exc:
         logger.warning(f"celery_training: Retrying job {training_job_id} due to transient error: {exc}", extra={"job_id": training_job_id, "status": "retrying"})
@@ -209,3 +217,15 @@ def train_model(self, training_job_id: str):
         
     finally:
         db.close()
+
+
+@celery_app.task(bind=True)
+def evaluate_candidate(self, evaluation_id: str):
+    """Evaluate a candidate model on its snapshot's held-out test split (Block A3). Never activates."""
+    from app.services.model_evaluation_service import run_evaluation
+    return run_evaluation(
+        evaluation_id,
+        session_factory=SessionLocal,
+        evaluate_fn=ultralytics_evaluate,
+        inspect_fn=ultralytics_model_names,
+    )

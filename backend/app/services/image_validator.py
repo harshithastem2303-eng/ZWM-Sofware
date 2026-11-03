@@ -239,6 +239,28 @@ def validate_image(image_path, existing_hashes=None):
 # 8. AI CATEGORY MATCH VALIDATION
 # --------------------------------------------------
 
+def detections_from_results(results, names) -> list:
+    """Every box exactly as the model reported it (Block A6.1 prediction evidence)."""
+    out = []
+    for res in results or []:
+        boxes = getattr(res, "boxes", None)
+        if boxes is None:
+            continue
+        for box in boxes:
+            cls_id = int(box.cls[0])
+            bbox = box.xyxy[0]
+            out.append({"class_id": cls_id, "label": str(names.get(cls_id)) if names.get(cls_id) is not None else None,
+                        "confidence": float(box.conf[0]),
+                        "bbox": [float(v) for v in (bbox.tolist() if hasattr(bbox, "tolist") else bbox)]})
+    return out
+
+
+def _with_inference(inference: dict, result: dict) -> dict:
+    """Attach the inference evidence (internal key, consumed by the upload route)."""
+    result["_inference"] = inference
+    return result
+
+
 def validate_ai_category_match(image_path: str, selected_category_name: str) -> dict:
     """
     Independently validates the actual image against the user-selected category using AI model inference.
@@ -256,9 +278,11 @@ def validate_ai_category_match(image_path: str, selected_category_name: str) -> 
     try:
         from app.services.model_cache import YOLOModelCache
         model_cache = YOLOModelCache()
-        model = model_cache.get_model()
+        # Block A6.1: the model object and the identity of the artifact it was loaded
+        # from are captured together, so the prediction is attributed to exactly it.
+        model, identity = model_cache.get_model_with_identity()
     except Exception:
-        model = None
+        model, identity = None, None
 
     if model is None or not hasattr(model, "names") or not model.names:
         return {
@@ -303,8 +327,11 @@ def validate_ai_category_match(image_path: str, selected_category_name: str) -> 
         }
 
     # Run inference using model
+    inference = {"identity": identity, "class_names": {str(k): str(v) for k, v in model.names.items()},
+                 "params": {"verbose": False}, "detections": []}
     try:
         results = model(image_path, verbose=False)
+        inference["detections"] = detections_from_results(results, model.names)
         top_conf = 0.0
         top_cls_id = None
 
@@ -317,14 +344,14 @@ def validate_ai_category_match(image_path: str, selected_category_name: str) -> 
                         top_cls_id = int(box.cls[0])
 
         if top_cls_id is None or top_conf < 0.50:
-            return {
+            return _with_inference(inference, {
                 "predicted_category": model.names.get(top_cls_id, "Unknown") if top_cls_id is not None else None,
                 "confidence": round(top_conf, 4),
                 "validation_result": "LOW_CONFIDENCE",
                 "status": "pending_admin_review",
                 "reason": f"Low AI confidence score ({top_conf:.1%}).",
                 "is_validated": False,
-            }
+            })
 
         predicted_label = model.names.get(top_cls_id, "Unknown")
 
@@ -337,39 +364,40 @@ def validate_ai_category_match(image_path: str, selected_category_name: str) -> 
 
         if is_match:
             if top_conf >= 0.80:
-                return {
+                return _with_inference(inference, {
                     "predicted_category": predicted_label,
                     "confidence": round(top_conf, 4),
                     "validation_result": "AUTO_ACCEPTED",
                     "status": "approved",
                     "reason": f"Auto-accepted with {top_conf:.1%} confidence match.",
                     "is_validated": True,
-                }
+                })
             else:
-                return {
+                return _with_inference(inference, {
                     "predicted_category": predicted_label,
                     "confidence": round(top_conf, 4),
                     "validation_result": "NEEDS_HUMAN_REVIEW",
                     "status": "pending_admin_review",
                     "reason": f"Uncertain prediction ({top_conf:.1%}). Sent for admin review.",
                     "is_validated": False,
-                }
+                })
         else:
-            return {
+            return _with_inference(inference, {
                 "predicted_category": predicted_label,
                 "confidence": round(top_conf, 4),
                 "validation_result": "CLASS_MISMATCH",
                 "status": "pending_admin_review",
                 "reason": f"Class mismatch: User selected '{selected_category_name}', AI predicted '{predicted_label}' ({top_conf:.1%}).",
                 "is_validated": False,
-            }
+            })
 
     except Exception as e:
-        return {
+        inference["error"] = type(e).__name__
+        return _with_inference(inference, {
             "predicted_category": None,
             "confidence": 0.0,
             "validation_result": "NEEDS_HUMAN_REVIEW",
             "status": "pending_admin_review",
             "reason": f"Inference processing error: {str(e)}",
             "is_validated": False,
-        }
+        })

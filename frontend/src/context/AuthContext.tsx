@@ -25,16 +25,16 @@ const DEFAULT_USER: User = {
   full_name: 'Keerthana H M',
   role: 'user',
   is_email_verified: true,
-  reward_points: 320,
-  image_count: 128,
+  reward_points: 0,
+  image_count: 0,
   created_at: '2025-01-15T10:00:00Z',
 };
 
 const DEFAULT_STATS: UserStats = {
-  total_uploads: 128,
-  validated_images: 96,
-  pending_images: 32,
-  reward_points: 320,
+  total_uploads: 0,
+  validated_images: 0,
+  pending_images: 0,
+  reward_points: 0,
 };
 
 const AuthContext = createContext<AuthContextType | undefined>(undefined);
@@ -68,7 +68,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   const [isDbConnected, setIsDbConnected] = useState<boolean>(false);
   const [lastSyncedAt, setLastSyncedAt] = useState<Date | null>(new Date());
 
-  // Function to fetch real-time stats from database
+  // Function to fetch real-time stats & profile from database
   const refreshStats = useCallback(async () => {
     const currentToken = localStorage.getItem('zwm_token');
     if (!currentToken) return;
@@ -81,6 +81,11 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         localStorage.setItem('zwm_stats', JSON.stringify(liveStats));
         setIsDbConnected(true);
         setLastSyncedAt(new Date());
+      }
+      const profile = await authService.getProfile();
+      if (profile) {
+        setUser(profile);
+        localStorage.setItem('zwm_user', JSON.stringify(profile));
       }
     } catch (err) {
       setIsDbConnected(false);
@@ -140,6 +145,13 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       localStorage.setItem('zwm_stats', JSON.stringify(updated));
       return updated;
     });
+    if (typeof newStats.reward_points === 'number') {
+      setUser((prevUser) => {
+        const updatedUser = { ...prevUser, reward_points: newStats.reward_points! };
+        localStorage.setItem('zwm_user', JSON.stringify(updatedUser));
+        return updatedUser;
+      });
+    }
     setLastSyncedAt(new Date());
   };
 

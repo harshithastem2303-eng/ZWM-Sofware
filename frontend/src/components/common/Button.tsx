@@ -17,6 +17,7 @@ export const Button: React.FC<ButtonProps> = ({
   rightIcon,
   className = '',
   disabled,
+  style = {},
   ...props
 }) => {
   const baseStyles: React.CSSProperties = {
@@ -62,7 +63,7 @@ export const Button: React.FC<ButtonProps> = ({
 
   return (
     <button
-      style={{ ...baseStyles, ...sizeStyles[size], ...variantStyles[variant] }}
+      style={{ ...baseStyles, ...sizeStyles[size], ...variantStyles[variant], ...style }}
       className={`btn ${className}`}
       disabled={disabled || isLoading}
       {...props}

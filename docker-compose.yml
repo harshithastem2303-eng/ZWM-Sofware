@@ -7,14 +7,14 @@ services:
     restart: always
     environment:
       POSTGRES_USER: ${POSTGRES_USER:-postgres}
-      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-postgres}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?POSTGRES_PASSWORD must be set in the environment}
       POSTGRES_DB: ${POSTGRES_DB:-ZWM_db}
     ports:
       - "5432:5432"
     volumes:
       - postgres_data:/var/lib/postgresql/data
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U postgres -d ZWM_db"]
+      test: [ "CMD-SHELL", "pg_isready -U postgres -d ZWM_db" ]
       interval: 5s
       timeout: 5s
       retries: 5
@@ -26,7 +26,7 @@ services:
     ports:
       - "6379:6379"
     healthcheck:
-      test: ["CMD", "redis-cli", "ping"]
+      test: [ "CMD", "redis-cli", "ping" ]
       interval: 5s
       timeout: 5s
       retries: 5
@@ -41,11 +41,11 @@ services:
     ports:
       - "8000:8000"
     environment:
-      - DATABASE_URL=postgresql://${POSTGRES_USER:-postgres}:${POSTGRES_PASSWORD:-postgres}@db:5432/${POSTGRES_DB:-ZWM_db}
+      - DATABASE_URL=postgresql://${POSTGRES_USER:-postgres}:${POSTGRES_PASSWORD:?POSTGRES_PASSWORD must be set in the environment}@db:5432/${POSTGRES_DB:-ZWM_db}
       - REDIS_URL=redis://redis:6379/0
       - APP_ENV=production
-      - JWT_SECRET_KEY=${JWT_SECRET_KEY:-some-prod-jwt-secret}
-      - SECRET_KEY=${SECRET_KEY:-some-prod-secret-key}
+      - JWT_SECRET_KEY=${JWT_SECRET_KEY:?JWT_SECRET_KEY must be set in the environment}
+      - SECRET_KEY=${SECRET_KEY:?SECRET_KEY must be set in the environment}
       - YOLO_INFERENCE_BACKEND=onnx
     depends_on:
       db:
@@ -53,7 +53,7 @@ services:
       redis:
         condition: service_healthy
     healthcheck:
-      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8000/api/health/db')"]
+      test: [ "CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8000/api/health/db')" ]
       interval: 10s
       timeout: 5s
       retries: 5
@@ -66,7 +66,7 @@ services:
     restart: always
     command: celery -A app.celery_app.celery_app worker --loglevel=info
     environment:
-      - DATABASE_URL=postgresql://${POSTGRES_USER:-postgres}:${POSTGRES_PASSWORD:-postgres}@db:5432/${POSTGRES_DB:-ZWM_db}
+      - DATABASE_URL=postgresql://${POSTGRES_USER:-postgres}:${POSTGRES_PASSWORD:?POSTGRES_PASSWORD must be set in the environment}@db:5432/${POSTGRES_DB:-ZWM_db}
       - REDIS_URL=redis://redis:6379/0
       - APP_ENV=production
     depends_on:

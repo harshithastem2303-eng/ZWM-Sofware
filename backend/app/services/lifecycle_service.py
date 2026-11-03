@@ -34,6 +34,16 @@ from app.models.annotation import Annotation
 logger = logging.getLogger(__name__)
 
 
+def remove_readonly(func, path, exc_info):
+    """Windows permission error handler for shutil.rmtree."""
+    import stat
+    try:
+        os.chmod(path, stat.S_IWRITE)
+        func(path)
+    except Exception:
+        pass
+
+
 # ---------------------------------------------------------------------------
 # Constants — lifecycle log event tokens
 # ---------------------------------------------------------------------------
@@ -55,6 +65,112 @@ def slugify_category_name(name: Optional[str]) -> str:
     slug = re.sub(r"[^\w\s-]", "", name).strip().lower()
     slug = re.sub(r"[-\s]+", "_", slug)
     return slug or "general"
+
+
+def _dataset_root() -> str:
+    from app.config import settings
+    return os.path.join(settings.UPLOAD_FOLDER, "dataset")
+
+
+def _guarded_rmtree(path: str, root: str) -> None:
+    """rmtree confined to ``root``; raises UnsafeFilesystemOperation instead of leaving it."""
+    from app.services.fs_safety import assert_within
+    assert_within(path, root, action="delete")
+    shutil.rmtree(path, onerror=remove_readonly)
+
+
+def delete_dataset_category_folder(cat_name: str) -> None:
+    """Delete dataset folder matching category name or slug across all candidate upload paths."""
+    if not cat_name:
+        return
+    import shutil
+    from app.config import settings
+
+    slug = slugify_category_name(cat_name)
+    slug_clean = slug.lower().replace("-", "_")
+    name_clean = cat_name.lower().replace(" ", "_").replace("-", "_").replace("&", "")
+
+    # A5.1: only the configured dataset root. No cwd/repository fallbacks: those let
+    # tests (and misconfigured deployments) delete folders outside UPLOAD_FOLDER.
+    dataset_roots = [_dataset_root()]
+
+    for d_root in dataset_roots:
+        if not os.path.exists(d_root):
+            continue
+
+        # 1. Direct path targets
+        for s in [slug, cat_name, cat_name.lower(), cat_name.replace(" ", "_"), slug_clean, name_clean]:
+            target_path = os.path.join(d_root, s)
+            if os.path.exists(target_path) and os.path.isdir(target_path):
+                try:
+                    _guarded_rmtree(target_path, d_root)
+                    logger.info(f"Direct deleted category folder at {target_path}")
+                except Exception as exc:
+                    logger.warning(f"Failed to delete {target_path}: {exc}")
+
+        # 2. Scanning all items in directory
+        try:
+            for item in os.listdir(d_root):
+                item_path = os.path.join(d_root, item)
+                if not os.path.isdir(item_path):
+                    continue
+                item_clean = item.lower().replace(" ", "_").replace("-", "_").replace("&", "")
+                if (
+                    item_clean == slug_clean
+                    or item_clean == name_clean
+                    or item.lower() == slug.lower()
+                    or item.lower() == cat_name.lower()
+                ):
+                    try:
+                        _guarded_rmtree(item_path, d_root)
+                        logger.info(f"Scanned deleted dataset folder '{item}' at {item_path}")
+                    except Exception as err:
+                        logger.warning(f"Failed to rmtree {item_path}: {err}")
+        except Exception as exc:
+            logger.warning(f"Error scanning dataset root {d_root}: {exc}")
+
+
+def sync_dataset_folders_with_db(db: Session) -> None:
+    """
+    Purges any orphan dataset folder in uploads/dataset that does not match an active category in DB.
+    Guarantees strict 1-to-1 parity between active database categories and filesystem dataset folders.
+    """
+    try:
+        import shutil
+        from app.models.category import Category
+        from app.config import settings
+
+        all_cats = db.query(Category).all()
+        valid_slugs = {slugify_category_name(cat.class_name) for cat in all_cats}
+        valid_names = {cat.class_name.lower().replace(" ", "_").replace("-", "_") for cat in all_cats}
+        valid_raw_names = {cat.class_name.lower() for cat in all_cats}
+        valid_slugs.add("general")  # preserve fallback general folder
+
+        dataset_roots = [_dataset_root()]               # A5.1: configured root only
+
+        for d_root in dataset_roots:
+            if not os.path.exists(d_root):
+                continue
+            for item in os.listdir(d_root):
+                item_path = os.path.join(d_root, item)
+                if not os.path.isdir(item_path):
+                    continue
+                item_slug = slugify_category_name(item)
+                item_clean = item.lower().replace(" ", "_").replace("-", "_")
+                item_raw = item.lower()
+
+                if (
+                    item_slug not in valid_slugs
+                    and item_clean not in valid_names
+                    and item_raw not in valid_raw_names
+                ):
+                    try:
+                        _guarded_rmtree(item_path, d_root)
+                        logger.info(f"Purged orphan dataset category folder '{item}' from {item_path}")
+                    except Exception as err:
+                        logger.warning(f"Failed to delete orphan folder {item_path}: {err}")
+    except Exception as exc:
+        logger.warning(f"Error during dataset folder db sync: {exc}")
 
 
 # ---------------------------------------------------------------------------
@@ -117,6 +233,13 @@ def _safe_copy(src: str, dst: str) -> bool:
 def _safe_delete(path: str) -> None:
     """Delete a file, logging but not raising if already missing."""
     if path and os.path.exists(path):
+        from app.config import settings
+        from app.services.fs_safety import UnsafeFilesystemOperation, assert_within
+        try:
+            assert_within(path, settings.UPLOAD_FOLDER, action="delete")     # A5.1: never outside uploads
+        except UnsafeFilesystemOperation as exc:
+            logger.error("Refusing unsafe delete: %s", exc)
+            return
         try:
             os.remove(path)
             logger.info("%s | path=%s", _EV_TEMP_DELETED, path)
@@ -250,6 +373,8 @@ def promote_to_permanent(
         image.yolo_txt_path = perm_txt_path
         image.permanent_at = now
         image.is_validated = True
+        # Training eligibility is NOT assigned here: it is granted only by the explicit
+        # finish-labeling step (training_dataset_service.finalize_image_labeling).
         db.commit()
         db.refresh(image)
     except Exception as exc:

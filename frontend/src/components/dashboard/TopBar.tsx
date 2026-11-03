@@ -31,7 +31,9 @@ export const TopBar: React.FC = () => {
           </div>
           <div className="points-text-group">
             <span className="points-label">Points</span>
-            <span className="points-value">{stats?.reward_points ?? user?.reward_points ?? 320}</span>
+            <span className="points-value">
+              {Math.max(stats?.reward_points || 0, user?.reward_points || 0, (stats as any)?.points || 0)}
+            </span>
           </div>
         </div>
 

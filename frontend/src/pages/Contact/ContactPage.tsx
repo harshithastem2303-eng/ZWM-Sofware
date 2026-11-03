@@ -1,7 +1,8 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { Mail, Phone, MapPin, Send, CheckCircle2, Menu, X, ArrowLeft } from 'lucide-react';
+import { Mail, Phone, MapPin, Send, CheckCircle2, Menu, X, ArrowLeft, Sparkles, Leaf, Recycle, Globe, Cpu } from 'lucide-react';
 import { ZwmLogo } from '../../assets/icons/ZwmLogo';
+import { Footer } from '../../components/Footer';
 
 export const ContactPage: React.FC = () => {
   const navigate = useNavigate();
@@ -538,86 +539,399 @@ export const ContactPage: React.FC = () => {
               )}
             </div>
 
-            {/* Right Column: Address & Graphic Card */}
-            <div style={{
-              backgroundColor: '#f8fafc',
-              borderRadius: '24px',
-              padding: '36px',
-              border: '1px solid #edf5ed',
-              display: 'flex',
-              flexDirection: 'column',
-              justifyContent: 'space-between',
-              minHeight: '480px',
-            }}>
-              <div>
-                <h3 style={{ fontSize: '1.15rem', fontWeight: 800, color: '#0f172a', marginBottom: '16px' }}>
-                  Address
-                </h3>
-                <p style={{ fontSize: '1.1rem', fontWeight: 800, color: '#168a1a', marginBottom: '8px', lineHeight: 1.3 }}>
-                  ZWM Eco Technologies Private Limited
-                </p>
-                <p style={{ fontSize: '0.95rem', color: '#475569', marginBottom: '20px', lineHeight: 1.5 }}>
-                  Ahmedabad (Gujarat) India - 382415.
-                </p>
+            {/* Right Column: Animated Eco Intelligence Showcase */}
+            <div
+              style={{
+                background: 'linear-gradient(145deg, #f0fdf4 0%, #ffffff 50%, #f8fafc 100%)',
+                borderRadius: '24px',
+                padding: '36px 32px',
+                border: '1px solid #bbf7d0',
+                boxShadow: '0 20px 40px -15px rgba(22, 138, 26, 0.12)',
+                display: 'flex',
+                flexDirection: 'column',
+                justifyContent: 'space-between',
+                minHeight: '520px',
+                position: 'relative',
+                overflow: 'hidden',
+              }}
+            >
+              {/* CSS Animation Keyframes */}
+              <style>{`
+                @keyframes zwmOrbitClockwise {
+                  from { transform: rotate(0deg); }
+                  to { transform: rotate(360deg); }
+                }
+                @keyframes zwmOrbitCounter {
+                  from { transform: rotate(0deg); }
+                  to { transform: rotate(-360deg); }
+                }
+                @keyframes zwmPulseGlow {
+                  0%, 100% { transform: scale(1); opacity: 0.9; box-shadow: 0 0 20px rgba(34, 197, 94, 0.35); }
+                  50% { transform: scale(1.08); opacity: 0.7; box-shadow: 0 0 35px rgba(34, 197, 94, 0.55); }
+                }
+                @keyframes zwmFloatGentle {
+                  0%, 100% { transform: translateY(0px); }
+                  50% { transform: translateY(-6px); }
+                }
+                @keyframes zwmRadarPing {
+                  0% { transform: scale(0.95); opacity: 0.8; }
+                  70% { transform: scale(1.4); opacity: 0; }
+                  100% { transform: scale(1.4); opacity: 0; }
+                }
+              `}</style>
 
-                <p style={{ fontSize: '0.98rem', fontWeight: 700, color: '#0f172a', margin: 0 }}>
-                  Email Id: <a href="mailto:team@zwm.eco" style={{ color: '#168a1a', textDecoration: 'none', fontWeight: 700 }}>team@zwm.eco</a>
+              {/* Decorative Subtle Background Aura */}
+              <div
+                style={{
+                  position: 'absolute',
+                  top: '-40px',
+                  right: '-40px',
+                  width: '200px',
+                  height: '200px',
+                  borderRadius: '50%',
+                  background: 'radial-gradient(circle, rgba(74, 222, 128, 0.25) 0%, rgba(255,255,255,0) 70%)',
+                  pointerEvents: 'none',
+                }}
+              />
+
+              {/* Mission Header */}
+              <div style={{ position: 'relative', zIndex: 2 }}>
+                <div
+                  style={{
+                    display: 'inline-flex',
+                    alignItems: 'center',
+                    gap: '6px',
+                    padding: '4px 12px',
+                    borderRadius: '20px',
+                    backgroundColor: '#dcfce7',
+                    color: '#15803d',
+                    fontSize: '0.78rem',
+                    fontWeight: 700,
+                    letterSpacing: '0.04em',
+                    textTransform: 'uppercase',
+                    marginBottom: '14px',
+                  }}
+                >
+                  <Sparkles size={13} color="#168a1a" />
+                  Eco-Intelligence Ecosystem
+                </div>
+
+                <h3
+                  style={{
+                    fontSize: '1.45rem',
+                    fontWeight: 800,
+                    color: '#0f172a',
+                    lineHeight: 1.3,
+                    marginBottom: '10px',
+                    letterSpacing: '-0.02em',
+                  }}
+                >
+                  Powering a Circular & Sustainable Tomorrow
+                </h3>
+
+                <p
+                  style={{
+                    fontSize: '0.92rem',
+                    color: '#475569',
+                    lineHeight: 1.6,
+                    margin: 0,
+                  }}
+                >
+                  Leveraging intelligent vision systems, community contributions, and automated waste classification to eliminate landfill impact worldwide.
                 </p>
               </div>
 
-              {/* Orbiting concentric ring animation matching reference video graphic */}
-              <div style={{ position: 'relative', height: '220px', marginTop: '36px', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-                <svg width="220" height="220" viewBox="0 0 220 220" style={{ position: 'absolute' }}>
-                  <circle cx="0" cy="110" r="60" fill="none" stroke="#d1fae5" strokeWidth="2" strokeDasharray="4 4" />
-                  <circle cx="0" cy="110" r="100" fill="none" stroke="#86efac" strokeWidth="2" strokeDasharray="6 6" />
-                  <circle cx="0" cy="110" r="140" fill="none" stroke="#d1fae5" strokeWidth="2" />
-                </svg>
+              {/* Dynamic Animated Orbit System */}
+              <div
+                style={{
+                  position: 'relative',
+                  height: '270px',
+                  margin: '20px 0',
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  overflow: 'visible',
+                }}
+              >
+                {/* Outer Dashed Orbit Track */}
+                <div
+                  style={{
+                    position: 'absolute',
+                    width: '260px',
+                    height: '260px',
+                    borderRadius: '50%',
+                    border: '1.5px dashed #86efac',
+                    animation: 'zwmOrbitClockwise 28s linear infinite',
+                  }}
+                >
+                  {/* Orbiting Badge 1: Automated Segregation */}
+                  <div
+                    style={{
+                      position: 'absolute',
+                      top: '-15px',
+                      left: '50%',
+                      transform: 'translateX(-50%)',
+                    }}
+                  >
+                    <div
+                      style={{
+                        animation: 'zwmOrbitCounter 28s linear infinite',
+                        display: 'flex',
+                        alignItems: 'center',
+                        gap: '6px',
+                        padding: '6px 12px',
+                        borderRadius: '20px',
+                        backgroundColor: '#ffffff',
+                        border: '1px solid #bbf7d0',
+                        boxShadow: '0 4px 12px rgba(22, 138, 26, 0.15)',
+                        fontSize: '0.74rem',
+                        fontWeight: 700,
+                        color: '#15803d',
+                        whiteSpace: 'nowrap',
+                      }}
+                    >
+                      <Recycle size={13} color="#168a1a" />
+                      Circular Waste
+                    </div>
+                  </div>
 
-                {/* Team member avatars on orbits */}
-                <div style={{ position: 'relative', width: '100%', height: '100%' }}>
-                  <div style={{
-                    position: 'absolute', top: '15%', left: '42%', width: '38px', height: '38px', borderRadius: '50%',
-                    backgroundColor: '#168a1a', border: '3px solid #ffffff', boxShadow: '0 4px 12px rgba(0,0,0,0.12)',
-                    display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#ffffff', fontWeight: 700, fontSize: '0.8rem'
-                  }}>
-                    ZW
+                  {/* Orbiting Badge 2: Net Zero Target */}
+                  <div
+                    style={{
+                      position: 'absolute',
+                      bottom: '-15px',
+                      left: '50%',
+                      transform: 'translateX(-50%)',
+                    }}
+                  >
+                    <div
+                      style={{
+                        animation: 'zwmOrbitCounter 28s linear infinite',
+                        display: 'flex',
+                        alignItems: 'center',
+                        gap: '6px',
+                        padding: '6px 12px',
+                        borderRadius: '20px',
+                        backgroundColor: '#ffffff',
+                        border: '1px solid #bbf7d0',
+                        boxShadow: '0 4px 12px rgba(22, 138, 26, 0.15)',
+                        fontSize: '0.74rem',
+                        fontWeight: 700,
+                        color: '#15803d',
+                        whiteSpace: 'nowrap',
+                      }}
+                    >
+                      <Globe size={13} color="#168a1a" />
+                      Zero Landfill
+                    </div>
                   </div>
-                  <div style={{
-                    position: 'absolute', top: '48%', left: '72%', width: '36px', height: '36px', borderRadius: '50%',
-                    backgroundColor: '#22c55e', border: '3px solid #ffffff', boxShadow: '0 4px 12px rgba(0,0,0,0.12)',
-                    display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#ffffff', fontWeight: 700, fontSize: '0.75rem'
-                  }}>
-                    AI
+                </div>
+
+                {/* Middle Counter-Rotating Orbit Track */}
+                <div
+                  style={{
+                    position: 'absolute',
+                    width: '180px',
+                    height: '180px',
+                    borderRadius: '50%',
+                    border: '1.5px dotted #4ade80',
+                    animation: 'zwmOrbitCounter 18s linear infinite',
+                  }}
+                >
+                  {/* Orbiting Badge 3: AI Model */}
+                  <div
+                    style={{
+                      position: 'absolute',
+                      top: '50%',
+                      left: '-16px',
+                      transform: 'translateY(-50%)',
+                    }}
+                  >
+                    <div
+                      style={{
+                        animation: 'zwmOrbitClockwise 18s linear infinite',
+                        display: 'flex',
+                        alignItems: 'center',
+                        gap: '5px',
+                        padding: '5px 10px',
+                        borderRadius: '16px',
+                        backgroundColor: '#168a1a',
+                        color: '#ffffff',
+                        boxShadow: '0 4px 12px rgba(22, 138, 26, 0.25)',
+                        fontSize: '0.72rem',
+                        fontWeight: 700,
+                        whiteSpace: 'nowrap',
+                      }}
+                    >
+                      <Cpu size={12} color="#ffffff" />
+                      AI Vision
+                    </div>
                   </div>
-                  <div style={{
-                    position: 'absolute', top: '78%', left: '38%', width: '34px', height: '34px', borderRadius: '50%',
-                    backgroundColor: '#15803d', border: '3px solid #ffffff', boxShadow: '0 4px 12px rgba(0,0,0,0.12)',
-                    display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#ffffff', fontWeight: 700, fontSize: '0.72rem'
-                  }}>
-                    ECO
+
+                  {/* Orbiting Badge 4: Eco Impact */}
+                  <div
+                    style={{
+                      position: 'absolute',
+                      top: '50%',
+                      right: '-16px',
+                      transform: 'translateY(-50%)',
+                    }}
+                  >
+                    <div
+                      style={{
+                        animation: 'zwmOrbitClockwise 18s linear infinite',
+                        display: 'flex',
+                        alignItems: 'center',
+                        gap: '5px',
+                        padding: '5px 10px',
+                        borderRadius: '16px',
+                        backgroundColor: '#15803d',
+                        color: '#ffffff',
+                        boxShadow: '0 4px 12px rgba(21, 128, 61, 0.25)',
+                        fontSize: '0.72rem',
+                        fontWeight: 700,
+                        whiteSpace: 'nowrap',
+                      }}
+                    >
+                      <Leaf size={12} color="#ffffff" />
+                      Eco Verified
+                    </div>
                   </div>
+                </div>
+
+                {/* Central Pulsating Core */}
+                <div
+                  style={{
+                    position: 'relative',
+                    width: '90px',
+                    height: '90px',
+                    borderRadius: '50%',
+                    background: 'linear-gradient(135deg, #22c55e 0%, #15803d 100%)',
+                    display: 'flex',
+                    flexDirection: 'column',
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                    color: '#ffffff',
+                    animation: 'zwmPulseGlow 3.5s ease-in-out infinite',
+                    zIndex: 5,
+                  }}
+                >
+                  <ZwmLogo size={42} />
+                  <span style={{ fontSize: '0.66rem', fontWeight: 800, letterSpacing: '0.04em', marginTop: '2px' }}>
+                    ZWM CORE
+                  </span>
                 </div>
               </div>
 
+              {/* Bottom Interactive Feature Badges */}
+              <div style={{ position: 'relative', zIndex: 2, display: 'flex', flexDirection: 'column', gap: '10px' }}>
+                <div
+                  style={{
+                    display: 'grid',
+                    gridTemplateColumns: 'repeat(3, 1fr)',
+                    gap: '8px',
+                    textAlign: 'center',
+                  }}
+                >
+                  <div
+                    style={{
+                      padding: '8px 4px',
+                      borderRadius: '12px',
+                      backgroundColor: 'rgba(255, 255, 255, 0.85)',
+                      border: '1px solid #dcfce7',
+                      backdropFilter: 'blur(6px)',
+                      animation: 'zwmFloatGentle 4s ease-in-out infinite',
+                    }}
+                  >
+                    <div style={{ fontSize: '0.98rem', fontWeight: 800, color: '#168a1a' }}>18+</div>
+                    <div style={{ fontSize: '0.68rem', fontWeight: 600, color: '#64748b' }}>Waste Classes</div>
+                  </div>
+
+                  <div
+                    style={{
+                      padding: '8px 4px',
+                      borderRadius: '12px',
+                      backgroundColor: 'rgba(255, 255, 255, 0.85)',
+                      border: '1px solid #dcfce7',
+                      backdropFilter: 'blur(6px)',
+                      animation: 'zwmFloatGentle 4s ease-in-out infinite 0.7s',
+                    }}
+                  >
+                    <div style={{ fontSize: '0.98rem', fontWeight: 800, color: '#168a1a' }}>Real-Time</div>
+                    <div style={{ fontSize: '0.68rem', fontWeight: 600, color: '#64748b' }}>AI Detection</div>
+                  </div>
+
+                  <div
+                    style={{
+                      padding: '8px 4px',
+                      borderRadius: '12px',
+                      backgroundColor: 'rgba(255, 255, 255, 0.85)',
+                      border: '1px solid #dcfce7',
+                      backdropFilter: 'blur(6px)',
+                      animation: 'zwmFloatGentle 4s ease-in-out infinite 1.4s',
+                    }}
+                  >
+                    <div style={{ fontSize: '0.98rem', fontWeight: 800, color: '#168a1a' }}>100%</div>
+                    <div style={{ fontSize: '0.68rem', fontWeight: 600, color: '#64748b' }}>Open Impact</div>
+                  </div>
+                </div>
+
+                {/* System Activity Pulse Indicator */}
+                <div
+                  style={{
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                    gap: '8px',
+                    padding: '8px 12px',
+                    borderRadius: '12px',
+                    backgroundColor: '#ffffff',
+                    border: '1px solid #e2e8f0',
+                    fontSize: '0.76rem',
+                    fontWeight: 600,
+                    color: '#475569',
+                    marginTop: '4px',
+                  }}
+                >
+                  <span
+                    style={{
+                      position: 'relative',
+                      display: 'inline-flex',
+                      width: '8px',
+                      height: '8px',
+                    }}
+                  >
+                    <span
+                      style={{
+                        position: 'absolute',
+                        width: '100%',
+                        height: '100%',
+                        borderRadius: '50%',
+                        backgroundColor: '#22c55e',
+                        animation: 'zwmRadarPing 1.8s cubic-bezier(0, 0, 0.2, 1) infinite',
+                      }}
+                    />
+                    <span
+                      style={{
+                        position: 'relative',
+                        display: 'inline-block',
+                        width: '8px',
+                        height: '8px',
+                        borderRadius: '50%',
+                        backgroundColor: '#168a1a',
+                      }}
+                    />
+                  </span>
+                  Zero-Waste AI Pipeline Active & Monitoring
+                </div>
+              </div>
             </div>
           </div>
         </div>
       </section>
 
       {/* ─── FOOTER ─── */}
-      <footer className="landing-footer" style={{
-        padding: '32px 64px',
-        backgroundColor: '#0f172a',
-        display: 'flex',
-        justifyContent: 'space-between',
-        alignItems: 'center',
-      }}>
-        <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
-          <ZwmLogo size={34} />
-          <span style={{ color: '#94a3b8', fontSize: '0.9rem', fontWeight: 600 }}>ZWM — Zero Waste Management</span>
-        </div>
-        <p style={{ color: '#475569', fontSize: '0.84rem', margin: 0 }}>© 2026 ZWM. Building a cleaner planet, one image at a time.</p>
-      </footer>
+      <Footer />
 
     </div>
   );

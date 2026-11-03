@@ -69,6 +69,33 @@ def _resolve_image_path(image_id: Optional[str], image_b64: Optional[str], db: S
     )
 
 
+def _record_segmentation(db: Session, source: str, image_id: Optional[str], user: User, polygons: list,
+                         status_: str, params: dict) -> str:
+    """
+    Block A6.1: immutable provenance of a segmentation-assist inference. The image is
+    linked only when the request named an existing image; base64-only requests are
+    recorded without an image (never a fabricated id). Fails closed: if the record
+    cannot be stored, the suggestions are not returned.
+    """
+    from app.services import prediction_service as ps
+    linked = image_id if image_id and db.query(Image.image_id).filter(Image.image_id == image_id).first() else None
+    detections = ps.segmentation_detections(polygons)
+    engines = sorted({d["engine"] for d in detections if d.get("engine")})
+    rec = ps.new_record(source=source, status=status_, identity=ps.segmentation_identity(ai_detector_instance),
+                        detections=detections, confidence_is_model_score=False, image_id=linked,
+                        requested_by=user.user_id, engine=",".join(engines) or None,
+                        request_params={**params, "input": "image_id" if linked else "base64"})
+    db.add(rec)
+    try:
+        db.commit()
+    except Exception:
+        db.rollback()
+        logger.error("PREDICTION_RECORD_FAILED | source=%s", source)
+        raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                            detail="Prediction could not be recorded")
+    return rec.prediction_id
+
+
 @router.post("/polygon-click")
 def segment_from_click(
     payload: AIPolygonClickRequest,
@@ -81,6 +108,10 @@ def segment_from_click(
     """
     image_path = _resolve_image_path(payload.image_id, payload.image, db)
     is_temp = payload.image is not None and not payload.image_id
+    # Block A6.0: record (and commit) that AI suggestions were served for this image
+    # BEFORE returning them; its labels then need an administrator review.
+    from app.services.training_dataset_service import record_ai_suggestion
+    record_ai_suggestion(db, payload.image_id)
 
     try:
         polygon_res = ai_detector_instance.segment_from_click(
@@ -90,7 +121,9 @@ def segment_from_click(
             conf=payload.conf,
         )
 
+        params = {"x": payload.x, "y": payload.y, "conf": payload.conf}
         if not polygon_res or not polygon_res.get("points"):
+            _record_segmentation(db, "ai_polygon_click", payload.image_id, current_user, [], "no_result", params)
             raise HTTPException(
                 status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
                 detail="Could not extract polygon contour at specified click location."
@@ -104,11 +137,14 @@ def segment_from_click(
             "confidence": polygon_res.get("confidence", 0.95),
         }
 
+        prediction_id = _record_segmentation(db, "ai_polygon_click", payload.image_id, current_user,
+                                             [polygon_res], "succeeded", params)
         return {
             "success": True,
             "status": "success",
             "image_id": payload.image_id,
             "ai_generated": True,
+            "prediction_id": prediction_id,
             "polygon": poly_data,
             "points": points_list,
             "raw_polygon": polygon_res,
@@ -135,6 +171,8 @@ def segment_full_image(
     """
     image_path = _resolve_image_path(payload.image_id, payload.image, db)
     is_temp = payload.image is not None and not payload.image_id
+    from app.services.training_dataset_service import record_ai_suggestion
+    record_ai_suggestion(db, payload.image_id)                     # Block A6.0 (see segment_from_click)
 
     try:
         polygons = ai_detector_instance.segment_image(
@@ -142,11 +180,14 @@ def segment_full_image(
             conf=payload.conf,
         )
 
+        prediction_id = _record_segmentation(db, "ai_segment", payload.image_id, current_user, polygons,
+                                             "succeeded" if polygons else "no_result", {"conf": payload.conf})
         return {
             "success": True,
             "status": "success",
             "image_id": payload.image_id,
             "ai_generated": True,
+            "prediction_id": prediction_id,
             "count": len(polygons),
             "polygons": polygons,
             "coordinate_space": "original_image",

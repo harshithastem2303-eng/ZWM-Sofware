@@ -287,15 +287,13 @@ class TestUpdateAnnotation:
     def test_update_annotation_label_data(self, client, user_auth, admin_auth):
         """TC-8: Updating label_data replaces the shape coordinates."""
         image_id = _upload_image(client, user_auth["headers"], seed=108)
-        category_id = _create_category(client, admin_auth["headers"])
-
         r = client.post("/api/annotations/", json={
             "image_id": image_id,
             "annotation_type": "polygon",
             "label_data": {
                 "points": [{"x": 0, "y": 0}, {"x": 10, "y": 0}, {"x": 10, "y": 10}]
             },
-            "category_id": category_id,
+            # No category: stays a non-training annotation (eligible ones are frozen, A1)
         }, headers=user_auth["headers"])
         ann_id = r.json()["annotation_id"]
 
@@ -312,15 +310,13 @@ class TestUpdateAnnotation:
     def test_update_annotation_type(self, client, user_auth, admin_auth):
         """TC-17: Annotation type can be changed (e.g. polygon -> freehand)."""
         image_id = _upload_image(client, user_auth["headers"], seed=117)
-        category_id = _create_category(client, admin_auth["headers"])
-
         r = client.post("/api/annotations/", json={
             "image_id": image_id,
             "annotation_type": "polygon",
             "label_data": {
                 "points": [{"x": 1, "y": 1}, {"x": 2, "y": 2}, {"x": 3, "y": 3}]
             },
-            "category_id": category_id,
+            # No category: stays a non-training annotation (eligible ones are frozen, A1)
         }, headers=user_auth["headers"])
         ann_id = r.json()["annotation_id"]
 
@@ -341,13 +337,11 @@ class TestDeleteAnnotation:
     def test_delete_annotation(self, client, user_auth, admin_auth):
         """TC-9: Deleted annotation is no longer retrievable."""
         image_id = _upload_image(client, user_auth["headers"], seed=109)
-        category_id = _create_category(client, admin_auth["headers"])
-
         r = client.post("/api/annotations/", json={
             "image_id": image_id,
             "annotation_type": "rectangle",
             "label_data": {"points": [{"x": 10, "y": 10}, {"x": 50, "y": 50}]},
-            "category_id": category_id,
+            # No category: stays a non-training annotation (eligible ones are frozen, A1)
         }, headers=user_auth["headers"])
         ann_id = r.json()["annotation_id"]
 

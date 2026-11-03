@@ -2,6 +2,20 @@
 from io import BytesIO
 
 
+def _discard_stub_queued_jobs(job_ids):
+    """Jobs 'queued' to a stubbed Celery would linger as queued; close them for later tests."""
+    from app.database import SessionLocal
+    from app.models.training import TrainingJob
+    if not job_ids:
+        return
+    s = SessionLocal()
+    try:
+        s.query(TrainingJob).filter(TrainingJob.job_id.in_(job_ids), TrainingJob.status == "queued")             .update({"status": "failed"}, synchronize_session=False)
+        s.commit()
+    finally:
+        s.close()
+
+
 class TestTrainingJobs:
     def test_list_jobs(self, client, admin_auth):
         r = client.get("/api/ml/jobs", headers=admin_auth["headers"])
@@ -16,9 +30,16 @@ class TestTrainingJobs:
         r = client.get("/api/ml/jobs/nonexistent-id", headers=admin_auth["headers"])
         assert r.status_code == 404
 
-    def test_trigger_training_not_ready(self, client, admin_auth):
+    def test_trigger_training_not_ready(self, client, admin_auth, monkeypatch):
         """Training should fail if dataset is not ready."""
-        r = client.post("/api/ml/train", headers=admin_auth["headers"])
+        # Never reach a real queue or the background-thread training fallback.
+        from app.tasks.training_tasks import train_model
+        queued = []
+        monkeypatch.setattr(train_model, "delay", lambda job_id: queued.append(job_id))
+        try:
+            r = client.post("/api/ml/train", headers=admin_auth["headers"])
+        finally:
+            _discard_stub_queued_jobs(queued)
         assert r.status_code == 400
 
 

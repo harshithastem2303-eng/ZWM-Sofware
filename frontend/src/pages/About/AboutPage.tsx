@@ -20,6 +20,7 @@ import {
   ArrowRight,
 } from 'lucide-react';
 import { ZwmLogo } from '../../assets/icons/ZwmLogo';
+import { Footer } from '../../components/Footer';
 
 export const AboutPage: React.FC = () => {
   const navigate = useNavigate();
@@ -1016,26 +1017,7 @@ export const AboutPage: React.FC = () => {
       </section>
 
       {/* ─── FOOTER ─── */}
-      <footer
-        className="landing-footer"
-        style={{
-          padding: '32px 64px',
-          backgroundColor: '#0f172a',
-          display: 'flex',
-          justifyContent: 'space-between',
-          alignItems: 'center',
-        }}
-      >
-        <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
-          <ZwmLogo size={34} />
-          <span style={{ color: '#94a3b8', fontSize: '0.9rem', fontWeight: 600 }}>
-            ZWM — Zero Waste Management
-          </span>
-        </div>
-        <p style={{ color: '#475569', fontSize: '0.84rem' }}>
-          © 2026 ZWM. Building a cleaner planet, one image at a time.
-        </p>
-      </footer>
+      <Footer />
     </div>
   );
 };

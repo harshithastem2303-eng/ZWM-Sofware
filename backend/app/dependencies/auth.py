@@ -224,7 +224,7 @@ def get_current_user(
                     password_hash=admin_rec.hash_password,
                     full_name=admin_rec.admin_name,
                     role="admin",
-                    reward_points=1000,
+                    reward_points=0,
                 )
                 db.add(user)
                 try:

@@ -27,14 +27,13 @@ def admin_login(login_in: UserLogin, db: Session = Depends(get_db)):
     """Authenticate Admin using the admins database table & secure environment configuration."""
     req_email = login_in.email.strip().lower()
     plain_pw = login_in.password.strip()
-    admin_email = settings.ADMIN_EMAIL.strip().lower()
-    admin_password = settings.ADMIN_PASSWORD.strip()
-    
+    from app.config import env_admin_matches
+
     # Query admins table ONLY
     admin_rec = db.query(Admin).filter(func.lower(Admin.admin_email) == req_email).first()
-    
+
     is_valid = False
-    if req_email == admin_email and plain_pw == admin_password:
+    if env_admin_matches(req_email, plain_pw):          # A5.1: opt-in bootstrap admin, constant-time
         is_valid = True
     elif admin_rec and verify_password(plain_pw, admin_rec.hash_password):
         is_valid = True
@@ -60,6 +59,8 @@ def admin_login(login_in: UserLogin, db: Session = Depends(get_db)):
     # Clean up any legacy admin rows from users table so users table contains no admin data
     legacy_user = db.query(User).filter(func.lower(User.email) == req_email).first()
     if legacy_user:
+        from app.models.user import RewardTransaction
+        db.query(RewardTransaction).filter(RewardTransaction.user_id == legacy_user.user_id).delete(synchronize_session=False)
         db.delete(legacy_user)
         db.commit()
             
@@ -128,8 +129,21 @@ class ImageApproveRequest(BaseModel):
 @router.get("/categories", response_model=dict)
 def get_categories(admin: User = Depends(require_admin), db: Session = Depends(get_db)):
     categories = db.query(Category).order_by(Category.class_name.asc()).all()
-    results = [
-        {
+    results = []
+    for c in categories:
+        img_count = db.query(Image).filter(
+            (Image.selected_category_id == c.category_id) |
+            (func.lower(Image.ai_predicted_category) == c.class_name.lower())
+        ).count()
+        validated_img_count = db.query(Image).filter(
+            ((Image.selected_category_id == c.category_id) | (func.lower(Image.ai_predicted_category) == c.class_name.lower())),
+            (Image.status.in_(["approved", "annotated", "yolo_ready", "permanent"])) | (Image.is_validated == True)
+        ).count()
+        effective_count = max(c.validated_count or 0, validated_img_count, img_count)
+        if (c.validated_count or 0) < effective_count:
+            c.validated_count = effective_count
+
+        results.append({
             "id": c.category_id,
             "category_id": c.category_id,
             "name": c.class_name,
@@ -138,11 +152,14 @@ def get_categories(admin: User = Depends(require_admin), db: Session = Depends(g
             "class_code": c.class_code,
             "description": c.description,
             "is_active": c.is_active,
-            "validated_count": c.validated_count or 0,
-            "total_images": db.query(Image).filter(Image.selected_category_id == c.category_id).count()
-        }
-        for c in categories
-    ]
+            "validated_count": effective_count,
+            "total_images": img_count,
+            "uploaded_count": img_count,
+        })
+    try:
+        db.commit()
+    except Exception:
+        db.rollback()
     return {"categories": results}
 
 
@@ -192,8 +209,33 @@ def update_category(category_id: int, category_in: CategoryUpdate, admin: User =
     if not category:
         raise HTTPException(status_code=404, detail="Category not found")
 
-    if category_in.class_name is not None:
+    from app.services.lifecycle_service import slugify_category_name
+    import shutil
+
+    old_slug = slugify_category_name(category.class_name)
+
+    if category_in.class_name is not None and category_in.class_name != category.class_name:
         category.class_name = category_in.class_name
+        new_slug = slugify_category_name(category.class_name)
+        if old_slug != new_slug:
+            old_dir = os.path.join(settings.UPLOAD_FOLDER, "dataset", old_slug)
+            new_dir = os.path.join(settings.UPLOAD_FOLDER, "dataset", new_slug)
+            if os.path.exists(old_dir):
+                try:
+                    if os.path.exists(new_dir):
+                        for sub in ["images", "labels"]:
+                            old_sub = os.path.join(old_dir, sub)
+                            new_sub = os.path.join(new_dir, sub)
+                            if os.path.exists(old_sub):
+                                os.makedirs(new_sub, exist_ok=True)
+                                for f in os.listdir(old_sub):
+                                    shutil.move(os.path.join(old_sub, f), os.path.join(new_sub, f))
+                        shutil.rmtree(old_dir, ignore_errors=True)
+                    else:
+                        shutil.move(old_dir, new_dir)
+                except Exception as exc:
+                    logger.warning(f"Could not rename dataset directory from {old_slug} to {new_slug}: {exc}")
+
     if category_in.class_code is not None:
         category.class_code = category_in.class_code
     if category_in.description is not None:
@@ -203,45 +245,90 @@ def update_category(category_id: int, category_in: CategoryUpdate, admin: User =
 
     db.commit()
     db.refresh(category)
+
+    # Ensure new folder structure exists
+    try:
+        new_slug = slugify_category_name(category.class_name)
+        cat_dir = os.path.join(settings.UPLOAD_FOLDER, "dataset", new_slug)
+        os.makedirs(os.path.join(cat_dir, "images"), exist_ok=True)
+        os.makedirs(os.path.join(cat_dir, "labels"), exist_ok=True)
+    except Exception:
+        pass
+
     return {
         "message": "Category updated successfully",
         "category_id": category.category_id,
+        "class_name": category.class_name,
         "is_active": category.is_active
     }
 
 
 @router.delete("/categories/{category_id}", response_model=dict)
-def delete_category(category_id: int, admin: User = Depends(require_admin), db: Session = Depends(get_db)):
-    category = db.query(Category).filter(Category.category_id == category_id).first()
+def delete_category(category_id: str, admin: User = Depends(require_admin), db: Session = Depends(get_db)):
+    category = None
+    if str(category_id).isdigit():
+        category = db.query(Category).filter(Category.category_id == int(category_id)).first()
+
     if not category:
-        raise HTTPException(status_code=404, detail="Category not found")
+        from app.services.lifecycle_service import slugify_category_name
+        target_str = str(category_id).lower()
+        for cat in db.query(Category).all():
+            if (
+                cat.class_name.lower() == target_str
+                or slugify_category_name(cat.class_name) == target_str
+                or str(cat.category_id) == str(category_id)
+            ):
+                category = cat
+                break
+
+    from app.services.lifecycle_service import delete_dataset_category_folder, sync_dataset_folders_with_db
+
+    if not category:
+        # If DB record doesn't exist or was deleted, still aggressively purge folder from disk!
+        delete_dataset_category_folder(str(category_id))
+        sync_dataset_folders_with_db(db)
+        return {
+            "message": f"Category folder '{category_id}' deleted from file structure",
+            "category_id": category_id
+        }
 
     cat_name = category.class_name
-    from app.services.lifecycle_service import slugify_category_name
+    cat_db_id = category.category_id
     from app.models.annotation import Annotation
 
-    category_slug = slugify_category_name(cat_name)
+    # Categories with a YOLO class index are archived, never hard-deleted: deleting
+    # would leave a gap in the 0..N-1 class map and orphan existing labels.
+    from app.services.training_dataset_service import category_has_training_history
+    if category_has_training_history(category):
+        category.is_active = False
+        db.commit()
+        logger.info(
+            "CATEGORY_ARCHIVED | category_id=%s | yolo_class_index=%s",
+            cat_db_id, category.yolo_class_index,
+        )
+        return {
+            "message": f"Category '{cat_name}' archived (deactivated); it has YOLO training history and cannot be hard-deleted",
+            "category_id": cat_db_id,
+            "archived": True,
+        }
 
-    # Safely clear FK references from annotations and images before deletion
-    db.query(Annotation).filter(Annotation.category_id == category_id).update({"category_id": None}, synchronize_session=False)
-    db.query(Image).filter(Image.selected_category_id == category_id).update({"selected_category_id": None}, synchronize_session=False)
+    # 1. Delete matching category folder from disk file structure
+    delete_dataset_category_folder(cat_name)
+
+    # 2. Safely clear FK references from annotations and images before deletion
+    db.query(Annotation).filter(Annotation.category_id == cat_db_id).update({"category_id": None}, synchronize_session=False)
+    db.query(Image).filter(Image.selected_category_id == cat_db_id).update({"selected_category_id": None}, synchronize_session=False)
 
     db.delete(category)
     db.commit()
 
-    # Delete corresponding folder from uploads/dataset/{category_slug}
-    try:
-        cat_dir = os.path.join(settings.UPLOAD_FOLDER, "dataset", category_slug)
-        if os.path.exists(cat_dir):
-            import shutil
-            shutil.rmtree(cat_dir, ignore_errors=True)
-            logger.info(f"Deleted dataset folder for category '{cat_name}' at {cat_dir}")
-    except Exception as exc:
-        logger.warning(f"Could not delete dataset directory for category '{cat_name}': {exc}")
+    # 3. Purge target folder & any orphan category folders from disk file structure
+    delete_dataset_category_folder(cat_name)
+    sync_dataset_folders_with_db(db)
 
     return {
         "message": f"Category '{cat_name}' deleted successfully",
-        "category_id": category_id
+        "category_id": cat_db_id
     }
 
 
@@ -359,6 +446,11 @@ def approve_image(image_id: str, request_in: ImageApproveRequest, admin: User = 
                 description=f"Approved image validation reward: {img.original_filename}"
             )
             db.add(tx)
+
+        if img.selected_category_id:
+            cat = db.query(Category).filter(Category.category_id == img.selected_category_id).first()
+            if cat:
+                cat.validated_count = (cat.validated_count or 0) + 1
             
     elif action == "reject":
         img.status = "rejected"
@@ -368,6 +460,67 @@ def approve_image(image_id: str, request_in: ImageApproveRequest, admin: User = 
 
     db.commit()
     return {"message": f"Image {action}d successfully"}
+
+
+# ---- Training label review (Block A6.0) ----
+# Independent administrator approval of ONE exact label revision is the only way an
+# image becomes training eligible. This is separate from /images/{id}/approve (upload
+# validation + rewards) and from the AI auto-acceptance stored in Image.is_validated.
+
+class LabelReviewRequest(BaseModel):
+    decision: str
+    label_sha256: str
+    reason: Optional[str] = None
+
+
+def _reviewer_identity(admin) -> tuple:
+    rid = getattr(admin, "admin_id", None) or getattr(admin, "user_id", None)
+    email = getattr(admin, "admin_email", None) or getattr(admin, "email", None)
+    return rid, email
+
+
+@router.get("/label-reviews/pending")
+def list_pending_label_reviews(
+    limit: int = 50,
+    offset: int = 0,
+    admin: User = Depends(require_admin),
+    db: Session = Depends(get_db),
+):
+    from app.services.training_dataset_service import pending_label_reviews
+    if not (1 <= limit <= 200) or not (0 <= offset <= 100_000):
+        raise HTTPException(status_code=422, detail="limit must be 1-200 and offset 0-100000")
+    try:
+        return pending_label_reviews(db, limit=limit, offset=offset)
+    finally:
+        db.rollback()                                   # read-only
+
+
+@router.get("/images/{image_id}/label-review")
+def get_label_review(image_id: str, admin: User = Depends(require_admin), db: Session = Depends(get_db)):
+    from app.services.training_dataset_service import label_review_state
+    img = db.query(Image).filter(Image.image_id == image_id).first()
+    if not img:
+        raise HTTPException(status_code=404, detail="Image not found")
+    try:
+        return label_review_state(db, img)
+    finally:
+        db.rollback()
+
+
+@router.post("/images/{image_id}/label-review")
+def review_label(
+    image_id: str,
+    body: LabelReviewRequest,
+    admin: User = Depends(require_admin),
+    db: Session = Depends(get_db),
+):
+    from app.services.training_dataset_service import LabelReviewError, review_label_revision
+    reviewer_id, reviewer_email = _reviewer_identity(admin)
+    try:
+        return review_label_revision(db, image_id, reviewer_id=reviewer_id, reviewer_email=reviewer_email,
+                                     decision=body.decision, label_sha256=body.label_sha256, reason=body.reason)
+    except LabelReviewError as exc:
+        raise HTTPException(status_code=exc.status, detail=exc.reason)
 
 
 # ---- Analytics ----
@@ -552,25 +705,35 @@ def analytics_details(
         durations.append(diff)
     avg_duration = sum(durations) / len(durations) if durations else 0.0
     
-    top_contributors = (
+    all_users = (
         db.query(User.user_id, User.email, User.full_name, User.image_count, User.reward_points)
         .filter(User.role == "user")
-        .order_by(User.image_count.desc())
-        .limit(10)
         .all()
     )
     contributor_stats = []
-    for row in top_contributors:
-        approved_count = row[3] or 0
-        uploaded_count = db.query(Image).filter(Image.user_id == row[0]).count()
+    for row in all_users:
+        user_id = row[0]
+        db_approved = db.query(Image).filter(
+            Image.user_id == user_id,
+            (Image.status.in_(["approved", "annotated", "yolo_ready", "permanent"])) | (Image.is_validated == True)
+        ).count()
+        approved_count = max(row[3] or 0, db_approved)
+        uploaded_count = max(db.query(Image).filter(Image.user_id == user_id).count(), approved_count)
+        reward_pts = row[4] or 0
         contributor_stats.append({
-            "user_id": row[0],
+            "user_id": user_id,
             "email": row[1],
             "full_name": row[2],
             "approved": approved_count,
-            "uploads": max(uploaded_count, approved_count),
-            "reward_points": row[4] or 0
+            "uploads": uploaded_count,
+            "reward_points": reward_pts
         })
+    # Sort so users with active contributions (approved, uploads, rewards) always rank above zeros
+    contributor_stats.sort(
+        key=lambda c: (c["approved"], c["uploads"], c["reward_points"]),
+        reverse=True
+    )
+    contributor_stats = contributor_stats[:10]
     
     return {
         "summary": {
@@ -727,7 +890,7 @@ def get_system_health(admin: User = Depends(require_admin), db: Session = Depend
 from app.models.setting import SystemSetting
 
 @router.get("/settings", response_model=SystemSettingResponse)
-def get_system_settings(db: Session = Depends(get_db)):
+def get_system_settings(admin: User = Depends(require_admin), db: Session = Depends(get_db)):
     """Fetch current system and ML pipeline settings."""
     setting = db.query(SystemSetting).filter(SystemSetting.id == 1).first()
     if not setting:
@@ -741,6 +904,7 @@ def get_system_settings(db: Session = Depends(get_db)):
 @router.put("/settings", response_model=SystemSettingResponse)
 def update_system_settings(
     settings_in: SystemSettingUpdate,
+    admin: User = Depends(require_admin),
     db: Session = Depends(get_db)
 ):
     """Update system and ML pipeline settings in database."""

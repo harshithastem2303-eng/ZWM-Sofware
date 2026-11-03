@@ -39,3 +39,15 @@ Desktop.ini
 
 # Logs
 *.log
+
+.env
+.env.*
+!.env.example
+__pycache__/
+*.pyc
+/backend/models/
+/backend/scratch/
+/backend/uploads/
+/backend/pytest_output.txt
+*.pt
+*.onnx

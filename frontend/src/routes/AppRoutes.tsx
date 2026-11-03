@@ -11,6 +11,8 @@ import { HowItWorksPage } from '../pages/HowItWorks/HowItWorksPage';
 import { LoginPage } from '../pages/Auth/LoginPage';
 import { RegisterPage } from '../pages/Auth/RegisterPage';
 import { VerifyEmailPage } from '../pages/Auth/VerifyEmailPage';
+import { TermsOfServicePage } from '../pages/Legal/TermsOfServicePage';
+import { PrivacyPolicyPage } from '../pages/Legal/PrivacyPolicyPage';
 
 export const AppRoutes: React.FC = () => {
   return (
@@ -21,6 +23,8 @@ export const AppRoutes: React.FC = () => {
       <Route path="/contact" element={<ContactPage />} />
       <Route path="/how-it-works" element={<HowItWorksPage />} />
       <Route path="/how" element={<Navigate to="/how-it-works" replace />} />
+      <Route path="/terms" element={<TermsOfServicePage />} />
+      <Route path="/privacy" element={<PrivacyPolicyPage />} />
       <Route path="/login" element={<LoginPage />} />
       <Route path="/register" element={<RegisterPage />} />
       <Route path="/verify-email" element={<VerifyEmailPage />} />

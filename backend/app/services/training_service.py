@@ -7,32 +7,42 @@ from app.config import settings
 
 def check_dataset_readiness(db: Session):
     """
-    Check if all categories have enough validated images to meet the threshold.
-    Returns (ready: bool, category_stats: list).
-    """
-    categories = db.query(Category).all()
+    Training readiness against the TOTAL number of training-eligible images
+    across all active categories (v1.1.0). There is no per-category threshold.
 
+    ready == total eligible images >= next cumulative milestone
+             (last locked snapshot milestone + configured threshold).
+
+    Returns (ready: bool, category_stats: list). Per-category entries are
+    informational only and do not affect readiness.
+    """
+    from app.services.training_dataset_service import (
+        get_training_progress,
+        get_eligible_counts_by_category,
+    )
+
+    categories = db.query(Category).filter(Category.is_active.is_(True)).all()
     if not categories:
         return False, []
 
-    from app.models.setting import SystemSetting
-    sys_setting = db.query(SystemSetting).filter(SystemSetting.id == 1).first()
-    threshold = sys_setting.auto_retrain_count if sys_setting else settings.CATEGORY_VALIDATED_THRESHOLD
+    progress = get_training_progress(db)
+    eligible_by_cat = get_eligible_counts_by_category(db)
 
     stats = []
     for cat in categories:
-        count = cat.validated_count or 0
         stats.append({
             "category_id": cat.category_id,
             "class_name": cat.class_name,
             "class_code": cat.class_code,
-            "validated_count": count,
-            "threshold": threshold,
-            "ready": count >= threshold,
+            "yolo_class_index": cat.yolo_class_index,
+            "validated_count": cat.validated_count or 0,
+            "training_eligible_count": eligible_by_cat.get(cat.category_id, 0),
+            "threshold": progress["threshold"],
+            # Readiness is global (total-based), never per category.
+            "ready": progress["ready"],
         })
 
-    ready = all(s["ready"] for s in stats)
-    return ready, stats
+    return progress["ready"], stats
 
 
 def trigger_training_job(db: Session, version: str, class_counts: dict = None):

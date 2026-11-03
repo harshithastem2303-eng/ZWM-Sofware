@@ -122,8 +122,25 @@ def upload_image(
     val_reason = "No category selected."
     is_val = False
 
+    prediction_record = None
     if selected_category:
         ai_eval = validate_ai_category_match(file_path, selected_category.class_name)
+        inference = ai_eval.pop("_inference", None)
+        if inference is not None:
+            # Block A6.1: the AI check ran a real inference -> immutable provenance,
+            # committed together with the image row below.
+            from app.models.prediction import SOURCE_UPLOAD_VALIDATION, STATUS_FAILED, STATUS_SUCCEEDED
+            from app.services import prediction_service as ps
+            prediction_record = ps.new_record(
+                source=SOURCE_UPLOAD_VALIDATION,
+                status=STATUS_FAILED if inference.get("error") else STATUS_SUCCEEDED,
+                identity=ps.resolve_deployed_identity(db, inference.get("identity")),
+                detections=inference.get("detections") or [], confidence_is_model_score=True,
+                image_id=image_id, requested_by=user_id, class_names=inference.get("class_names"),
+                result={k: ai_eval.get(k) for k in ("predicted_category", "confidence", "validation_result")},
+                request_params={**(inference.get("params") or {}), "selected_category": selected_category.class_name},
+                error=inference.get("error"),
+            )
         ai_predicted_cat = ai_eval.get("predicted_category")
         ai_conf_score = ai_eval.get("confidence")
         val_result = ai_eval.get("validation_result")
@@ -163,6 +180,8 @@ def upload_image(
         temporary_expires_at=expires_at,
     )
     db.add(new_image)
+    if prediction_record is not None:
+        db.add(prediction_record)
     db.commit()
     db.refresh(new_image)
 
@@ -273,12 +292,17 @@ def delete_image(
     if image.status == "approved":
         raise HTTPException(status_code=400, detail="Cannot delete an approved image")
 
-    # Delete temporary file from disk
-    if image.temp_s3_path and os.path.exists(image.temp_s3_path):
-        os.remove(image.temp_s3_path)
-    # Delete permanent file from disk (if any)
-    if image.permanent_s3_path and os.path.exists(image.permanent_s3_path):
-        os.remove(image.permanent_s3_path)
+    # Training data must stay reproducible: never hard-delete eligible/snapshotted images.
+    from app.services.training_dataset_service import image_deletion_block_reason
+    block_reason = image_deletion_block_reason(db, image)
+    if block_reason:
+        raise HTTPException(status_code=409, detail=block_reason)
+
+    # Delete stored files -- only inside the configured upload root (A6.0): a path
+    # stored in the database is never trusted to point at a safe location.
+    from app.services.fs_safety import remove_file_within
+    for stored in (image.temp_s3_path, image.permanent_s3_path):
+        remove_file_within(stored, settings.UPLOAD_FOLDER, logger)
 
     db.delete(image)
     db.commit()

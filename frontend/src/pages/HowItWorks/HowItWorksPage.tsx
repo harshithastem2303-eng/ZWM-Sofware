@@ -21,6 +21,90 @@ import {
   Eye,
 } from 'lucide-react';
 import { ZwmLogo } from '../../assets/icons/ZwmLogo';
+import { Footer } from '../../components/Footer';
+
+const stepsData = [
+  {
+    num: '01',
+    btnLabel: 'Upload',
+    tag: 'Step 01 — Upload',
+    title: 'Upload Waste Images',
+    tagline: 'Upload photos of waste directly from your device',
+    icon: <Upload size={28} />,
+    color: '#168a1a',
+    lightBg: '#f0fdf4',
+    border: '#bbf7d0',
+    description:
+      'Capture or upload waste photos directly from your camera or gallery. Images are automatically validated for quality and tagged with location and timestamp metadata.',
+    highlights: [
+      'Direct mobile camera capture & simple drag-and-drop upload',
+      'Automatic image quality and resolution verification',
+      'GPS location & timestamp metadata tagging',
+      'Batch upload support for uploading multiple waste photos at once',
+    ],
+    previewType: 'upload',
+  },
+  {
+    num: '02',
+    btnLabel: 'Annotate',
+    tag: 'Step 02 — Annotate',
+    title: 'Annotate Waste Boundaries',
+    tagline: 'Draw precise bounding outlines around waste items',
+    icon: <Tag size={28} />,
+    color: '#0284c7',
+    lightBg: '#f0f9ff',
+    border: '#bae6fd',
+    description:
+      'Draw point-by-point polygon outlines and bounding boxes around waste items like PET bottles, milk pouches, and plastic covers to isolate them accurately from background objects.',
+    highlights: [
+      'Interactive polygon tracing directly over waste objects',
+      'Precise bounding box generation for PET bottles & plastic pouches',
+      'Separates overlapping waste items in complex garbage photos',
+      'Easy node editing with instant undo and redo tools',
+    ],
+    previewType: 'annotate',
+  },
+  {
+    num: '03',
+    btnLabel: 'Label',
+    tag: 'Step 03 — Label',
+    title: 'Label & Categorize Waste',
+    tagline: 'Assign waste labels: PET bottles, milk pouches, & more',
+    icon: <Leaf size={28} />,
+    color: '#d97706',
+    lightBg: '#fffbe6',
+    border: '#fef08a',
+    description:
+      'Label and sort waste into clear categories such as PET bottles, milk pouches, plastic covers, cardboard boxes, and glass containers for efficient recycling.',
+    highlights: [
+      'Categorizes specific waste items: PET Bottles & Milk Pouches',
+      'Identifies plastic covers, wrappers, cardboard, and metal cans',
+      'Automated AI class recommendations with confidence scores',
+      'Color-coded category tags for clean dataset organization',
+    ],
+    previewType: 'categorize',
+  },
+  {
+    num: '04',
+    btnLabel: 'Train',
+    tag: 'Step 04 — Train',
+    title: 'Train AI Model',
+    tagline: 'Train computer vision models with prepared datasets',
+    icon: <Database size={28} />,
+    color: '#7c3aed',
+    lightBg: '#f5f3ff',
+    border: '#ddd6fe',
+    description:
+      'Train and export verified waste datasets in standard computer vision formats like YOLO and COCO. Ready for instant AI model training for waste classification.',
+    highlights: [
+      'Automated YOLOv8 and YOLOv11 dataset zip file generation',
+      'Standardized COCO JSON & VOC XML annotation exports',
+      'Direct compatibility with PyTorch training pipelines',
+      'Version-controlled dataset releases for model retraining',
+    ],
+    previewType: 'dataset',
+  },
+];
 
 export const HowItWorksPage: React.FC = () => {
   const navigate = useNavigate();
@@ -61,91 +145,13 @@ export const HowItWorksPage: React.FC = () => {
   useEffect(() => {
     if (!isAutoplay) return;
     const timer = setInterval(() => {
-      setActiveStep((prev) => (prev + 1) % 4);
+      setActiveStep((prev) => (prev + 1) % stepsData.length);
     }, 5000);
     return () => clearInterval(timer);
   }, [isAutoplay]);
 
-  const stepsData = [
-    {
-      num: '01',
-      tag: 'Step 01 — Upload',
-      title: 'Upload Image Collection',
-      tagline: 'Multi-Source Image Ingestion & Metadata Tagging',
-      icon: <Upload size={28} />,
-      color: '#168a1a',
-      lightBg: '#f0fdf4',
-      border: '#bbf7d0',
-      description:
-        'Capture waste photos directly via camera or local storage. Uploaded images are checked for resolution, tagged with GPS/timestamps, and saved securely.',
-      highlights: [
-        'Direct mobile camera capture & file drag-and-drop upload',
-        'Automatic image resolution & format verification',
-        'GPS location & timestamp metadata association',
-        'Bulk dataset batch upload support',
-      ],
-      previewType: 'upload',
-    },
-    {
-      num: '02',
-      tag: 'Step 02 — Annotate',
-      title: 'Polygon-Based Annotation',
-      tagline: 'Pixel-Precise Object Contours & Boundary Mapping',
-      icon: <Tag size={28} />,
-      color: '#0284c7',
-      lightBg: '#f0f9ff',
-      border: '#bae6fd',
-      description:
-        'Draw point-by-point polygon outlines around waste items. Isolates overlapping bottles, wrappers, or cans from the background with pixel accuracy.',
-      highlights: [
-        'Interactive multi-point polygon contour masking',
-        'Auto-generated bounding boxes with bounding dimensions',
-        'Support for complex overlapping waste instances',
-        'Undo, redo, and polygon node editing',
-      ],
-      previewType: 'annotate',
-    },
-    {
-      num: '03',
-      tag: 'Step 03 — Categorize',
-      title: 'Categorize & Taxonomy Tagging',
-      tagline: 'Multi-Stream Sorting & Polymer Material Classification',
-      icon: <Leaf size={28} />,
-      color: '#d97706',
-      lightBg: '#fffbe6',
-      border: '#fef08a',
-      description:
-        'Sort waste into Plastic (PET, PP), Paper, Glass, and Metal streams. Standardized taxonomy tags organize items for targeted recycling.',
-      highlights: [
-        'Standardized 4-stream classification: Plastic, Paper, Glass, Metal',
-        'Sub-category polymer tagging (e.g. PET bottle vs HDPE container)',
-        'Class confidence scoring and automated suggestion tags',
-        'Color-coded class visual indicators',
-      ],
-      previewType: 'categorize',
-    },
-    {
-      num: '04',
-      tag: 'Step 04 — Validate',
-      title: 'Quality Audit & Dataset Validation',
-      tagline: 'Multi-Inspector Quality Verification & Audit Pipeline',
-      icon: <CheckSquare size={28} />,
-      color: '#7c3aed',
-      lightBg: '#f5f3ff',
-      border: '#ddd6fe',
-      description:
-        'Review polygon boundaries and material tags for dataset accuracy. Only high-confidence annotations are approved for model training.',
-      highlights: [
-        'Inspector review and double-blind validation workflow',
-        'Polygon overlap and boundary accuracy checks',
-        'Flagging and re-annotation request pipeline',
-        'Dataset quality health index scoring (99.4%+ target accuracy)',
-      ],
-      previewType: 'validate',
-    },
-  ];
-
-  const currentStep = stepsData[activeStep];
+  const safeStepIndex = activeStep >= stepsData.length ? 0 : activeStep;
+  const currentStep = stepsData[safeStepIndex] || stepsData[0];
 
   return (
     <div style={{ minHeight: '100vh', backgroundColor: '#ffffff', display: 'flex', flexDirection: 'column', fontFamily: 'var(--font-sans)', overflowX: 'hidden' }}>
@@ -430,7 +436,7 @@ export const HowItWorksPage: React.FC = () => {
                   }}>
                     {step.num}
                   </span>
-                  <span>{step.title.split(' ')[0]}</span>
+                  <span>{step.btnLabel || step.title.split(' ')[0]}</span>
                 </button>
               );
             })}
@@ -575,51 +581,152 @@ export const HowItWorksPage: React.FC = () => {
                   {/* STEP 2 PREVIEW: ANNOTATE */}
                   {currentStep.previewType === 'annotate' && (
                     <div style={{ flex: 1, position: 'relative', overflow: 'hidden' }}>
-                      <img src="/images/hero-waste.jpg" alt="Annotating Waste" style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
+                      <img src="/images/hero-waste.jpg" alt="Annotating Waste Items" style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
                       
-                      {/* Polygon Mask Overlay Animation */}
-                      <svg style={{ position: 'absolute', top: 0, left: 0, width: '100%', height: '100%' }}>
+                      {/* Top Info Banner */}
+                      <div style={{
+                        position: 'absolute', top: '10px', left: '10px', right: '10px',
+                        backgroundColor: 'rgba(15, 23, 42, 0.88)', backdropFilter: 'blur(6px)',
+                        color: '#ffffff', padding: '6px 10px', borderRadius: '8px',
+                        fontSize: '0.68rem', display: 'flex', justifyContent: 'space-between', alignItems: 'center',
+                        zIndex: 10,
+                      }}>
+                        <span>Objects Annotated: 2 Items</span>
+                        <span style={{ color: '#38bdf8', fontWeight: 800 }}>PET & Glass Bottles</span>
+                      </div>
+
+                      {/* ─── 1. PET BOTTLE ANNOTATION ─── */}
+                      {/* Bounding Box overlay over plastic PET bottle */}
+                      <div style={{
+                        position: 'absolute',
+                        top: '76.5%',
+                        left: '1%',
+                        width: '32.5%',
+                        height: '16%',
+                        border: '2px dashed #0284c7',
+                        borderRadius: '4px',
+                        boxShadow: '0 0 12px rgba(2, 132, 199, 0.65)',
+                        pointerEvents: 'none',
+                        zIndex: 5,
+                      }}>
+                        <span style={{
+                          position: 'absolute',
+                          top: '-20px',
+                          left: '-2px',
+                          backgroundColor: '#0284c7',
+                          color: '#ffffff',
+                          fontSize: '0.60rem',
+                          fontWeight: 800,
+                          padding: '2px 6px',
+                          borderRadius: '4px 4px 4px 0',
+                          boxShadow: '0 2px 6px rgba(0,0,0,0.3)',
+                          whiteSpace: 'nowrap',
+                        }}>
+                          PET Bottle 98.5%
+                        </span>
+                      </div>
+
+                      {/* Polygon overlay for PET bottle */}
+                      <svg
+                        style={{ position: 'absolute', top: 0, left: 0, width: '100%', height: '100%', pointerEvents: 'none', zIndex: 4 }}
+                        viewBox="0 0 100 100"
+                        preserveAspectRatio="none"
+                      >
                         <polygon
-                          points="40,120 180,100 220,240 70,260"
-                          fill="rgba(2, 132, 199, 0.25)"
-                          stroke="#0284c7"
-                          strokeWidth="3"
-                          strokeDasharray="6 3"
+                          points="2,87 5,91 19,87 32,83 31,77 17,79 3,82"
+                          fill="rgba(2, 132, 199, 0.38)"
+                          stroke="#38bdf8"
+                          strokeWidth="1.2"
+                          strokeDasharray="2 1"
                         />
-                        {/* Polygon Handle Nodes */}
-                        <circle cx="40" cy="120" r="5" fill="#0284c7" />
-                        <circle cx="180" cy="100" r="5" fill="#0284c7" />
-                        <circle cx="220" cy="240" r="5" fill="#0284c7" />
-                        <circle cx="70" cy="260" r="5" fill="#0284c7" />
                       </svg>
 
+                      {/* Polygon Handle Nodes for PET bottle */}
+                      <svg style={{ position: 'absolute', top: 0, left: 0, width: '100%', height: '100%', pointerEvents: 'none', zIndex: 6 }}>
+                        <circle cx="2%" cy="87%" r="3.5" fill="#ffffff" stroke="#0284c7" strokeWidth="2" />
+                        <circle cx="5%" cy="91%" r="3.5" fill="#ffffff" stroke="#0284c7" strokeWidth="2" />
+                        <circle cx="19%" cy="87%" r="3.5" fill="#ffffff" stroke="#0284c7" strokeWidth="2" />
+                        <circle cx="32%" cy="83%" r="3.5" fill="#ffffff" stroke="#0284c7" strokeWidth="2" />
+                        <circle cx="31%" cy="77%" r="3.5" fill="#ffffff" stroke="#0284c7" strokeWidth="2" />
+                        <circle cx="17%" cy="79%" r="3.5" fill="#ffffff" stroke="#0284c7" strokeWidth="2" />
+                        <circle cx="3%" cy="82%" r="3.5" fill="#ffffff" stroke="#0284c7" strokeWidth="2" />
+                      </svg>
+
+                      {/* ─── 2. GREEN GLASS BOTTLE ANNOTATION ─── */}
+                      {/* Bounding Box overlay over green Glass bottle */}
                       <div style={{
-                        position: 'absolute', bottom: '12px', left: '12px', right: '12px',
-                        backgroundColor: 'rgba(15, 23, 42, 0.85)', backdropFilter: 'blur(6px)',
-                        color: '#ffffff', padding: '8px 12px', borderRadius: '10px',
-                        fontSize: '0.72rem', display: 'flex', justifyContent: 'space-between', alignItems: 'center'
+                        position: 'absolute',
+                        top: '77.5%',
+                        left: '44%',
+                        width: '35%',
+                        height: '13%',
+                        border: '2px dashed #16a34a',
+                        borderRadius: '4px',
+                        boxShadow: '0 0 12px rgba(22, 163, 74, 0.65)',
+                        pointerEvents: 'none',
+                        zIndex: 5,
                       }}>
-                        <span>Polygon Contour: 4 Points</span>
-                        <span style={{ color: '#38bdf8', fontWeight: 800 }}>Active Tool</span>
+                        <span style={{
+                          position: 'absolute',
+                          top: '-20px',
+                          right: '-2px',
+                          backgroundColor: '#16a34a',
+                          color: '#ffffff',
+                          fontSize: '0.60rem',
+                          fontWeight: 800,
+                          padding: '2px 6px',
+                          borderRadius: '4px 4px 0 4px',
+                          boxShadow: '0 2px 6px rgba(0,0,0,0.3)',
+                          whiteSpace: 'nowrap',
+                        }}>
+                          Glass Bottle 97.2%
+                        </span>
                       </div>
+
+                      {/* Polygon overlay for Glass bottle */}
+                      <svg
+                        style={{ position: 'absolute', top: 0, left: 0, width: '100%', height: '100%', pointerEvents: 'none', zIndex: 4 }}
+                        viewBox="0 0 100 100"
+                        preserveAspectRatio="none"
+                      >
+                        <polygon
+                          points="45,89 52,84 59,79 77,79 78,89 58,90 51,89"
+                          fill="rgba(22, 163, 74, 0.38)"
+                          stroke="#4ade80"
+                          strokeWidth="1.2"
+                          strokeDasharray="2 1"
+                        />
+                      </svg>
+
+                      {/* Polygon Handle Nodes for Glass bottle */}
+                      <svg style={{ position: 'absolute', top: 0, left: 0, width: '100%', height: '100%', pointerEvents: 'none', zIndex: 6 }}>
+                        <circle cx="45%" cy="89%" r="3.5" fill="#ffffff" stroke="#16a34a" strokeWidth="2" />
+                        <circle cx="52%" cy="84%" r="3.5" fill="#ffffff" stroke="#16a34a" strokeWidth="2" />
+                        <circle cx="59%" cy="79%" r="3.5" fill="#ffffff" stroke="#16a34a" strokeWidth="2" />
+                        <circle cx="77%" cy="79%" r="3.5" fill="#ffffff" stroke="#16a34a" strokeWidth="2" />
+                        <circle cx="78%" cy="89%" r="3.5" fill="#ffffff" stroke="#16a34a" strokeWidth="2" />
+                        <circle cx="58%" cy="90%" r="3.5" fill="#ffffff" stroke="#16a34a" strokeWidth="2" />
+                        <circle cx="51%" cy="89%" r="3.5" fill="#ffffff" stroke="#16a34a" strokeWidth="2" />
+                      </svg>
+
                     </div>
                   )}
 
                   {/* STEP 3 PREVIEW: CATEGORIZE */}
                   {currentStep.previewType === 'categorize' && (
                     <div style={{ flex: 1, padding: '14px', display: 'flex', flexDirection: 'column', gap: '10px', backgroundColor: '#f8fafc' }}>
-                      <p style={{ fontSize: '0.78rem', fontWeight: 800, color: '#0f172a', margin: 0 }}>Assign Category Class</p>
+                      <p style={{ fontSize: '0.78rem', fontWeight: 800, color: '#0f172a', margin: 0 }}>Assign Waste Category</p>
                       
                       {[
-                        { label: 'Plastic (PET Bottle)', count: '98.8%', color: '#3b82f6', active: true },
-                        { label: 'Paper & Cardboard', count: '96.4%', color: '#22c55e', active: false },
-                        { label: 'Glass Container', count: '95.1%', color: '#f97316', active: false },
-                        { label: 'Metal Can', count: '94.2%', color: '#a855f7', active: false },
+                        { label: 'PET Bottle (Plastic)', count: '98.8%', color: '#3b82f6', active: true },
+                        { label: 'Milk Pouch (Plastic)', count: '97.5%', color: '#0284c7', active: false },
+                        { label: 'Plastic Cover / Wrapper', count: '96.2%', color: '#16a34a', active: false },
+                        { label: 'Cardboard Box (Paper)', count: '94.8%', color: '#d97706', active: false },
                       ].map((cat) => (
                         <div key={cat.label} style={{
                           padding: '10px 12px',
                           borderRadius: '10px',
-                          backgroundColor: cat.active ? '#ffffff' : '#ffffff',
+                          backgroundColor: '#ffffff',
                           border: `2px solid ${cat.active ? cat.color : '#e2e8f0'}`,
                           display: 'flex',
                           justifyContent: 'space-between',
@@ -877,8 +984,8 @@ export const HowItWorksPage: React.FC = () => {
                   </button>
 
                   <button
-                    onClick={() => setActiveStep((prev) => Math.min(3, prev + 1))}
-                    disabled={activeStep === 3}
+                    onClick={() => setActiveStep((prev) => Math.min(stepsData.length - 1, prev + 1))}
+                    disabled={activeStep === stepsData.length - 1}
                     style={{
                       display: 'flex',
                       alignItems: 'center',
@@ -886,11 +993,11 @@ export const HowItWorksPage: React.FC = () => {
                       padding: '8px 20px',
                       borderRadius: '20px',
                       border: 'none',
-                      backgroundColor: activeStep === 3 ? '#94a3b8' : currentStep.color,
+                      backgroundColor: activeStep === stepsData.length - 1 ? '#94a3b8' : currentStep.color,
                       color: '#ffffff',
                       fontWeight: 700,
                       fontSize: '0.86rem',
-                      cursor: activeStep === 3 ? 'not-allowed' : 'pointer',
+                      cursor: activeStep === stepsData.length - 1 ? 'not-allowed' : 'pointer',
                       boxShadow: `0 4px 12px ${currentStep.color}35`,
                     }}
                   >
@@ -905,153 +1012,8 @@ export const HowItWorksPage: React.FC = () => {
         </div>
       </section>
 
-      {/* ─── FULL 4-STEP PIPELINE OVERVIEW ─── */}
-      <section style={{ padding: '100px 64px 120px', background: 'linear-gradient(180deg, #fdfaf5 0%, #fef7ed 100%)', borderTop: '1px solid #e6decb', position: 'relative', overflow: 'hidden' }}>
-        
-        {/* Decorative background circles */}
-        <div style={{ position: 'absolute', top: '-80px', left: '-80px', width: '300px', height: '300px', borderRadius: '50%', background: 'radial-gradient(circle, rgba(217,119,6,0.06) 0%, transparent 70%)', pointerEvents: 'none' }} />
-        <div style={{ position: 'absolute', bottom: '-60px', right: '-60px', width: '250px', height: '250px', borderRadius: '50%', background: 'radial-gradient(circle, rgba(124,58,237,0.05) 0%, transparent 70%)', pointerEvents: 'none' }} />
-
-        <div style={{ maxWidth: '1200px', margin: '0 auto', position: 'relative' }}>
-          
-          <div style={{ textAlign: 'center', maxWidth: '720px', margin: '0 auto 60px' }}>
-            <h2 style={{ fontSize: '2.5rem', fontWeight: 900, color: '#38240d', letterSpacing: '-0.02em', marginBottom: '12px' }}>
-              Full 4-Step Pipeline Overview
-            </h2>
-            <p style={{ fontSize: '1.05rem', color: '#786c5e', fontWeight: 500 }}>
-              Every step engineered for computer vision data integrity.
-            </p>
-          </div>
-
-          {/* Connecting dotted line */}
-          <div style={{ position: 'absolute', left: '12%', right: '12%', top: '62%', height: '3px', zIndex: 0, pointerEvents: 'none' }}>
-            <div style={{
-              width: '100%', height: '100%',
-              backgroundImage: 'repeating-linear-gradient(90deg, #d97706 0px, #d97706 8px, transparent 8px, transparent 16px)',
-              opacity: 0.2,
-              borderRadius: '2px',
-            }} />
-          </div>
-
-          {/* 4 Cards in a single row */}
-          <div style={{
-            display: 'grid',
-            gridTemplateColumns: 'repeat(4, 1fr)',
-            gap: '24px',
-            position: 'relative',
-            zIndex: 1,
-          }}>
-            {stepsData.map((step, idx) => {
-              const isActive = activeStep === idx;
-              // Vibrant gradient top-bar colours per step
-              const gradients = [
-                'linear-gradient(135deg, #22c55e, #16a34a)',
-                'linear-gradient(135deg, #0ea5e9, #0284c7)',
-                'linear-gradient(135deg, #f59e0b, #d97706)',
-                'linear-gradient(135deg, #a855f7, #7c3aed)',
-              ];
-              return (
-                <div
-                  key={step.num}
-                  onClick={() => {
-                    setActiveStep(idx);
-                    setIsAutoplay(false);
-                    window.scrollTo({ top: 400, behavior: 'smooth' });
-                  }}
-                  style={{
-                    backgroundColor: '#ffffff',
-                    borderRadius: '20px',
-                    padding: '0',
-                    border: isActive ? `2.5px solid ${step.color}` : '1.5px solid #e2e8f0',
-                    boxShadow: isActive ? `0 12px 28px ${step.color}22` : '0 4px 16px rgba(0,0,0,0.04)',
-                    cursor: 'pointer',
-                    position: 'relative',
-                    zIndex: 2,
-                    transition: 'all 0.35s cubic-bezier(0.25, 1, 0.5, 1)',
-                    overflow: 'hidden',
-                  }}
-                  onMouseOver={(e) => {
-                    e.currentTarget.style.transform = 'translateY(-10px)';
-                    e.currentTarget.style.borderColor = step.color;
-                    e.currentTarget.style.boxShadow = `0 20px 40px ${step.color}28`;
-                  }}
-                  onMouseOut={(e) => {
-                    e.currentTarget.style.transform = 'translateY(0)';
-                    e.currentTarget.style.borderColor = isActive ? step.color : '#e2e8f0';
-                    e.currentTarget.style.boxShadow = isActive ? `0 12px 28px ${step.color}22` : '0 4px 16px rgba(0,0,0,0.04)';
-                  }}
-                >
-                  {/* Gradient colour top bar */}
-                  <div style={{
-                    height: '6px',
-                    background: gradients[idx],
-                    width: '100%',
-                  }} />
-
-                  <div style={{ padding: '28px 24px 32px' }}>
-                    {/* Step number + icon header */}
-                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '16px' }}>
-                      <span style={{
-                        fontSize: '2rem', fontWeight: 900, color: step.color,
-                        opacity: 0.2, lineHeight: 1,
-                      }}>
-                        {step.num}
-                      </span>
-                      <div style={{
-                        width: '48px', height: '48px', borderRadius: '14px',
-                        background: step.lightBg, color: step.color,
-                        display: 'flex', alignItems: 'center', justifyContent: 'center',
-                        boxShadow: `0 4px 12px ${step.color}15`,
-                      }}>
-                        {step.icon}
-                      </div>
-                    </div>
-
-                    <h3 style={{ fontSize: '1.1rem', fontWeight: 800, color: '#0f172a', marginBottom: '10px', lineHeight: 1.3 }}>
-                      {step.title}
-                    </h3>
-                    <p style={{ fontSize: '0.85rem', color: '#64748b', lineHeight: 1.65, margin: 0 }}>
-                      {step.description}
-                    </p>
-
-                    {/* Active indicator dot */}
-                    {isActive && (
-                      <div style={{
-                        marginTop: '16px', display: 'flex', alignItems: 'center', gap: '6px',
-                      }}>
-                        <span style={{
-                          width: '8px', height: '8px', borderRadius: '50%',
-                          backgroundColor: step.color,
-                          animation: 'pulseGlow 1.5s infinite',
-                        }} />
-                        <span style={{ fontSize: '0.72rem', fontWeight: 700, color: step.color, textTransform: 'uppercase', letterSpacing: '0.5px' }}>
-                          Active
-                        </span>
-                      </div>
-                    )}
-                  </div>
-                </div>
-              );
-            })}
-          </div>
-
-        </div>
-      </section>
-
       {/* ─── FOOTER ─── */}
-      <footer className="landing-footer" style={{
-        padding: '32px 64px',
-        backgroundColor: '#0f172a',
-        display: 'flex',
-        justifyContent: 'space-between',
-        alignItems: 'center',
-      }}>
-        <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
-          <ZwmLogo size={34} />
-          <span style={{ color: '#94a3b8', fontSize: '0.9rem', fontWeight: 600 }}>ZWM — Zero Waste Management</span>
-        </div>
-        <p style={{ color: '#475569', fontSize: '0.84rem', margin: 0 }}>© 2026 ZWM. Building a cleaner planet, one image at a time.</p>
-      </footer>
+      <Footer />
 
     </div>
   );

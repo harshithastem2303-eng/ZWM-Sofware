@@ -20,11 +20,23 @@ import { HowItWorksPage } from './pages/HowItWorks/HowItWorksPage';
 import { LoginPage } from './pages/Auth/LoginPage';
 import { RegisterPage } from './pages/Auth/RegisterPage';
 import { VerifyEmailPage } from './pages/Auth/VerifyEmailPage';
+import { TermsOfServicePage } from './pages/Legal/TermsOfServicePage';
+import { PrivacyPolicyPage } from './pages/Legal/PrivacyPolicyPage';
 import { UserProtectedRoute } from './components/UserProtectedRoute';
+import { useLocation } from 'react-router-dom';
+
+const ScrollToTop: React.FC = () => {
+  const { pathname } = useLocation();
+  React.useEffect(() => {
+    window.scrollTo(0, 0);
+  }, [pathname]);
+  return null;
+};
 
 export const App: React.FC = () => {
   return (
     <BrowserRouter>
+      <ScrollToTop />
       <AuthProvider>
         <Routes>
           {/* Admin Routes */}
@@ -45,6 +57,8 @@ export const App: React.FC = () => {
           <Route path="/contact" element={<ContactPage />} />
           <Route path="/how-it-works" element={<HowItWorksPage />} />
           <Route path="/how" element={<Navigate to="/how-it-works" replace />} />
+          <Route path="/terms" element={<TermsOfServicePage />} />
+          <Route path="/privacy" element={<PrivacyPolicyPage />} />
 
           {/* User Auth Pages */}
           <Route path="/login" element={<LoginPage />} />

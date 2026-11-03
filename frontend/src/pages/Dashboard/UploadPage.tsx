@@ -447,17 +447,40 @@ export const UploadPage: React.FC = () => {
                 onClick={handleUploadAndAnnotate}
                 disabled={isUploading}
                 isLoading={isUploading}
-                leftIcon={<UploadCloud size={22} />}
-                style={{ width: '100%', padding: '16px', borderRadius: '30px', fontSize: '1.05rem' }}
+                leftIcon={<UploadCloud size={22} color="#ffffff" />}
+                style={{
+                  width: '100%',
+                  padding: '16px',
+                  borderRadius: '30px',
+                  fontSize: '1.05rem',
+                  fontWeight: 700,
+                  background: 'linear-gradient(135deg, #16a34a 0%, #15803d 100%)',
+                  color: '#ffffff',
+                  boxShadow: '0 6px 20px rgba(22, 163, 74, 0.4)',
+                  border: 'none',
+                }}
               >
                 Upload & Proceed to Annotate
               </Button>
               <Button
-                variant="outline"
+                variant="secondary"
                 size="md"
                 onClick={handleClear}
                 disabled={isUploading}
-                style={{ width: '100%', padding: '12px', borderRadius: '30px' }}
+                leftIcon={<FolderOpen size={18} color="#475569" />}
+                style={{
+                  width: '100%',
+                  padding: '13px',
+                  borderRadius: '30px',
+                  fontSize: '0.95rem',
+                  fontWeight: 600,
+                  backgroundColor: '#f1f5f9',
+                  color: '#334155',
+                  border: '1.5px solid #cbd5e1',
+                  boxShadow: '0 2px 6px rgba(0, 0, 0, 0.06)',
+                  cursor: 'pointer',
+                  transition: 'all 0.2s ease',
+                }}
               >
                 Select Different Image
               </Button>

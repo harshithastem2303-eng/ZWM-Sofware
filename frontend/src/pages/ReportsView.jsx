@@ -1,9 +1,19 @@
-import React from 'react';
+import React, { useEffect, useState } from 'react';
 import { BarChart3, Cpu, Layers, Download, TrendingUp, CheckCircle, Clock, AlertTriangle, Users, Image as ImageIcon } from 'lucide-react';
 import CountUp from '../components/CountUp';
 import useInView from '../hooks/useInView';
+import { fetchActiveModel } from '../services/api';
 
 const ReportsView = ({ analytics }) => {
+  // Block A5: model telemetry comes from the active model record, never from constants.
+  const [activeModel, setActiveModel] = useState(undefined);
+  useEffect(() => {
+    let cancelled = false;
+    fetchActiveModel()
+      .then((m) => { if (!cancelled) setActiveModel(m); })
+      .catch(() => { if (!cancelled) setActiveModel(null); });
+    return () => { cancelled = true; };
+  }, []);
   // Scroll In-View Animation Refs
   const [funnelRef, funnelInView] = useInView({ threshold: 0.15 });
   const [categoriesRef, categoriesInView] = useInView({ threshold: 0.15 });
@@ -326,12 +336,12 @@ const ReportsView = ({ analytics }) => {
             <div className="metric-icon-box" style={{ width: '38px', height: '38px', color: '#3b82f6', backgroundColor: '#eff6ff' }}><Cpu size={18} /></div>
           </div>
           <div>
-            <h3 style={{ fontSize: '28px', fontWeight: 700, color: '#3b82f6' }}>YOLOv8-m (v2.4)</h3>
-            <p style={{ fontSize: '12px', color: 'var(--color-text-muted)', marginTop: '4px' }}>Active ML Waste Classification Model.</p>
+            <h3 style={{ fontSize: '28px', fontWeight: 700, color: '#3b82f6' }}>{activeModel ? activeModel.version : 'Not available'}</h3>
+            <p style={{ fontSize: '12px', color: 'var(--color-text-muted)', marginTop: '4px' }}>{activeModel ? 'Active ML Waste Classification Model.' : 'No active model.'}</p>
           </div>
           <div style={{ width: '100%', borderTop: '1px solid var(--color-border)', paddingTop: '8px', marginTop: '4px', display: 'flex', justifyContent: 'space-between', fontSize: '12px' }}>
-            <span>mAP50 Accuracy: <strong><CountUp end={94.6} decimals={1} suffix="%" duration={1000} /></strong></span>
-            <span style={{ color: '#10b981', fontWeight: 600 }}>Active production model</span>
+            <span>mAP50 Accuracy: <strong>{typeof activeModel?.map_score === 'number' ? <CountUp end={activeModel.map_score * 100} decimals={1} suffix="%" duration={1000} /> : 'Not available'}</strong></span>
+            <span style={{ color: activeModel ? '#10b981' : 'var(--color-text-muted)', fontWeight: 600 }}>{activeModel ? 'Active production model' : '—'}</span>
           </div>
         </div>
       </section>

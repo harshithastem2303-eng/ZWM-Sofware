@@ -1,12 +1,14 @@
 import React from 'react';
 import { useNavigate, useLocation } from 'react-router-dom';
-import { Home, UploadCloud, User as UserIcon } from 'lucide-react';
+import { Home, UploadCloud, User as UserIcon, LogOut } from 'lucide-react';
 import { ZwmLogo } from '../../assets/icons/ZwmLogo';
 import { RecycleIllustration } from '../../assets/icons/RecycleIllustration';
+import { useAuth } from '../../context/AuthContext';
 
 export const Sidebar: React.FC = () => {
   const navigate = useNavigate();
   const location = useLocation();
+  const { logout } = useAuth();
 
   const currentPath = location.pathname;
 
@@ -59,6 +61,18 @@ export const Sidebar: React.FC = () => {
           >
             <UserIcon size={20} />
             <span>Profile</span>
+          </button>
+
+          <button
+            className="nav-item"
+            onClick={() => {
+              logout();
+              navigate('/');
+            }}
+            style={{ width: '100%', background: 'none', textAlign: 'left', color: '#dc2626', cursor: 'pointer', marginTop: '12px' }}
+          >
+            <LogOut size={20} />
+            <span>Logout</span>
           </button>
         </nav>
       </div>

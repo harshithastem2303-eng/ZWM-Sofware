@@ -81,7 +81,7 @@ def test_enrich_model_version_api(client, admin_auth, db):
     found = [m for m in data["models"] if m["model_id"] == model_id]
     assert len(found) == 1
     assert found[0]["version"] == "v100"
-    assert found[0]["model_path"] == "/fake/path/v100.pt"
+    assert found[0]["model_path"] == "v100.pt"                 # A5.1: file name only, never the absolute path
     assert found[0]["dataset_info"] == {"plastic": 150}
     assert found[0]["status"] == "active"
     

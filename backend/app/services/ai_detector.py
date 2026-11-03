@@ -23,7 +23,27 @@ class AIDetector:
     def __init__(self, model_name: str = "yolov8n-seg.pt"):
         self.model_name = model_name
         self.model = None
+        self._weights_path = None       # local weights file actually loaded (Block A6.1 provenance)
+        self._weights_sha = None
         self._init_model()
+
+    def model_identity(self) -> Dict[str, Any]:
+        """
+        Identity of the segmentation-assist model (Block A6.1): the weights file name and
+        its SHA-256 when it was loaded from a local file; None values when the model was
+        not loaded (OpenCV-only operation) or came from a non-local source.
+        """
+        if self.model is None:
+            return {"loaded": False, "artifact": None, "sha256": None}
+        if self._weights_path and self._weights_sha is None and os.path.isfile(self._weights_path):
+            import hashlib
+            h = hashlib.sha256()
+            with open(self._weights_path, "rb") as fh:
+                for chunk in iter(lambda: fh.read(1 << 20), b""):
+                    h.update(chunk)
+            self._weights_sha = h.hexdigest()
+        return {"loaded": True, "artifact": os.path.basename(self._weights_path or self.model_name),
+                "sha256": self._weights_sha}
 
     def _init_model(self):
         """Initialise YOLOv8 segmentation model if present."""
@@ -34,6 +54,7 @@ class AIDetector:
             
             if os.path.exists(local_model_path):
                 self.model = YOLO(local_model_path)
+                self._weights_path = local_model_path
             else:
                 self.model = YOLO(self.model_name)
             logger.info("AIDetector: Loaded YOLOv8 segmentation model successfully.")
@@ -72,6 +93,8 @@ class AIDetector:
 
         # 2. Extract outer object contours with inner artwork filling & clustering
         polygons = self._extract_outer_clustered_polygons(img, raw_masks=yolo_masks)
+        for poly in polygons:                                   # A6.1: which engine produced it
+            poly.setdefault("engine", "yolo_seg_masks+opencv" if yolo_masks else "opencv_contours")
         return polygons
 
     def segment_from_click(self, image_path: str, x: int, y: int, conf: float = 0.25) -> Optional[Dict[str, Any]]:
@@ -132,6 +155,7 @@ class AIDetector:
                             "points": pts,
                             "class_name": "Waste Object",
                             "confidence": 0.95,
+                            "engine": "yolo_seg_mask",
                             "bbox": [min(xs), min(ys), max(xs), max(ys)]
                         }
 
@@ -273,6 +297,7 @@ class AIDetector:
                 "points": pts_orig, # Original image coordinates
                 "class_name": "Waste Object",
                 "confidence": 0.98,
+                "engine": "opencv_grabcut",
                 "bbox": [min(xs), min(ys), max(xs), max(ys)]
             }
         except Exception as e:
@@ -369,6 +394,7 @@ class AIDetector:
             "points": pts,
             "class_name": "Waste Object",
             "confidence": 0.75,
+            "engine": "opencv_contour_fallback",
             "bbox": [min(xs), min(ys), max(xs), max(ys)]
         }
 
@@ -392,6 +418,7 @@ class AIDetector:
             "points": pts,
             "class_name": "Waste Object",
             "confidence": 0.85,
+            "engine": "opencv_tight_fallback",
             "bbox": [min(xs), min(ys), max(xs), max(ys)]
         }
 

@@ -245,12 +245,23 @@ def _generate_yolo_txt_for_image(image_id: str, db: Session) -> Optional[str]:
         img_w = annotations[0].image_width or 800
         img_h = annotations[0].image_height or 600
 
+    # YOLO class ids are contiguous indices (0..N-1), never business class_code.
+    from app.services.training_dataset_service import ensure_yolo_class_indices
+    class_index_map = ensure_yolo_class_indices(db)
+    valid_indices = set(class_index_map.values())
+
     yolo_lines = []
     for ann in annotations:
         if not ann.annotation_type or not ann.label_data_json:
             continue
-        cat = db.query(Category).filter(Category.category_id == ann.category_id).first() if ann.category_id else None
-        class_id = cat.class_code if cat else (ann.category_id or 0)
+        effective_category_id = ann.category_id if ann.category_id is not None else image_rec.selected_category_id
+        class_id = class_index_map.get(effective_category_id)
+        if class_id is None or class_id not in valid_indices:
+            logger.warning(
+                "YOLO_LINE_SKIPPED | image_id=%s | annotation_id=%s | no valid category mapping",
+                image_id, ann.annotation_id,
+            )
+            continue
         line = annotation_to_yolo_line(
             ann.annotation_type,
             ann.label_data_json,
@@ -303,7 +314,16 @@ def create_annotation(
     ai_generated = True marks annotations produced by the ML predict endpoint.
     """
     # 1. Verify image exists
-    _verify_image(body.image_id, db)
+    target_image = _verify_image(body.image_id, db)
+
+    # Finalized / snapshotted images have a frozen annotation set.
+    from app.services.training_dataset_service import annotation_append_block_reason
+    reason = annotation_append_block_reason(db, target_image)
+    if reason:
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=reason)
+    # Multi-object labeling: after the first object the image is already permanent;
+    # further objects are only stored. The full label is built at finalize.
+    already_permanent = target_image.status == "permanent"
 
     # 2. Verify category if provided (from predefined dropdown)
     if body.category_id is not None:
@@ -347,9 +367,10 @@ def create_annotation(
     # 6. Update image category & status
     image_rec = db.query(Image).filter(Image.image_id == body.image_id).first()
     if image_rec:
-        if body.category_id is not None:
-            image_rec.selected_category_id = body.category_id
-        image_rec.status = "annotated"
+        if not already_permanent:
+            if body.category_id is not None:
+                image_rec.selected_category_id = body.category_id
+            image_rec.status = "annotated"
         image_rec.annotated_at = datetime.now(timezone.utc)
         db.add(image_rec)
 
@@ -357,7 +378,8 @@ def create_annotation(
     db.refresh(new_annotation)
 
     # 7. Generate YOLO TXT & promote image and labels to uploads/dataset/{category_slug}/
-    yolo_txt_path = _generate_yolo_txt_for_image(body.image_id, db)
+    #    (storage only — training eligibility is granted by POST /image/{id}/finalize)
+    yolo_txt_path = None if already_permanent else _generate_yolo_txt_for_image(body.image_id, db)
     if yolo_txt_path:
         new_annotation.yolo_label_path = yolo_txt_path
         db.commit()
@@ -370,13 +392,67 @@ def create_annotation(
     # 8. Generate full structured annotation JSON export
     _export_image_annotation_json(body.image_id, db)
 
+    # 9. Award reward points to user for valid annotation
+    points_awarded = 15
+    if current_user:
+        current_user.reward_points = (current_user.reward_points or 0) + points_awarded
+        if image_rec:
+            image_rec.reward_given = True
+            image_rec.credits_awarded = (image_rec.credits_awarded or 0) + points_awarded
+            db.add(image_rec)
+
+        from app.models.user import RewardTransaction
+        tx = RewardTransaction(
+            user_id=current_user.user_id,
+            points=points_awarded,
+            description=f"Earned points for completing valid annotation for image {image_rec.original_filename if image_rec else body.image_id}"
+        )
+        db.add(tx)
+        db.commit()
+        db.refresh(current_user)
+
     logger.info(
-        "ANNOTATION_CREATED | annotation_id=%s | image_id=%s | type=%s | user=%s | ai=%s",
+        "ANNOTATION_CREATED | annotation_id=%s | image_id=%s | type=%s | user=%s | ai=%s | points=%s",
         new_annotation.annotation_id, body.image_id, ann_type,
-        current_user.user_id, body.ai_generated,
+        current_user.user_id if current_user else "anonymous", body.ai_generated, points_awarded
     )
 
-    return _annotation_to_dict(new_annotation)
+    res_dict = _annotation_to_dict(new_annotation)
+    res_dict["reward_points_awarded"] = points_awarded
+    res_dict["user_reward_points"] = current_user.reward_points if current_user else 0
+    return res_dict
+
+
+# ---------------------------------------------------------------------------
+# POST /image/{image_id}/finalize — Finish labeling (training eligibility boundary)
+# ---------------------------------------------------------------------------
+
+@router.post("/image/{image_id}/finalize")
+def finalize_image_labeling_route(
+    image_id: str,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    """
+    Declare the image's annotation set complete. Builds one YOLO label from ALL
+    annotations and only then makes the image training eligible. Idempotent;
+    awards no points (points are awarded per saved annotation as before).
+    """
+    from app.services.training_dataset_service import (
+        LabelingFinalizationError,
+        finalize_image_labeling,
+    )
+
+    image = _verify_image(image_id, db)
+    if image.user_id != current_user.user_id and current_user.role != "admin":
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Not authorized to finalize this image")
+    try:
+        return finalize_image_labeling(db, image_id, finalized_by=current_user.user_id)
+    except LabelingFinalizationError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail=f"Labeling cannot be finalized: {exc.reason}",
+        )
 
 
 # ---------------------------------------------------------------------------
@@ -435,6 +511,22 @@ def update_annotation(
 
     _verify_annotation_ownership(annotation, current_user)
 
+    # Accepted training data is frozen: block label/geometry/category changes, and the
+    # ai_generated provenance flag (Block A6.0: it is part of the label evidence; editing
+    # it after eligibility would rewrite the record of how frozen training data was made).
+    changes_training_label = any(
+        v is not None for v in (
+            body.annotation_type, body.label_data, body.category_id,
+            body.image_width, body.image_height, body.ai_generated,
+        )
+    )
+    if changes_training_label:
+        from app.services.training_dataset_service import annotation_mutation_block_reason
+        image_rec = db.query(Image).filter(Image.image_id == annotation.image_id).first()
+        reason = annotation_mutation_block_reason(db, image_rec)
+        if reason:
+            raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=reason)
+
     # Apply updates
     if body.annotation_type is not None:
         annotation.annotation_type = validate_annotation_type(body.annotation_type)
@@ -484,11 +576,18 @@ def delete_annotation(
 
     _verify_annotation_ownership(annotation, current_user)
 
+    # Accepted training data is frozen: never delete annotations/labels of eligible images.
+    from app.services.training_dataset_service import annotation_mutation_block_reason
+    image_rec = db.query(Image).filter(Image.image_id == annotation.image_id).first()
+    reason = annotation_mutation_block_reason(db, image_rec)
+    if reason:
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=reason)
+
     # Clean up legacy label files if they exist
-    if annotation.label_json_path and os.path.exists(annotation.label_json_path):
-        os.remove(annotation.label_json_path)
-    if annotation.yolo_label_path and os.path.exists(annotation.yolo_label_path):
-        os.remove(annotation.yolo_label_path)
+    # (A6.0: only files inside the configured upload root are ever removed)
+    from app.services.fs_safety import remove_file_within
+    for stored in (annotation.label_json_path, annotation.yolo_label_path):
+        remove_file_within(stored, settings.UPLOAD_FOLDER, logger)
 
     db.delete(annotation)
     db.commit()
@@ -541,15 +640,16 @@ def get_yolo_bbox(
 
     yolo_line = None
     if annotation.image_width and annotation.image_height and annotation.category_id is not None:
-        cat = db.query(Category).filter(Category.category_id == annotation.category_id).first()
-        class_id = cat.class_code if cat else annotation.category_id
-        yolo_line = annotation_to_yolo_line(
-            annotation.annotation_type,
-            annotation.label_data_json,
-            annotation.image_width,
-            annotation.image_height,
-            class_id,
-        )
+        from app.services.training_dataset_service import get_yolo_class_index
+        class_id = get_yolo_class_index(db, annotation.category_id)
+        if class_id is not None:
+            yolo_line = annotation_to_yolo_line(
+                annotation.annotation_type,
+                annotation.label_data_json,
+                annotation.image_width,
+                annotation.image_height,
+                class_id,
+            )
 
     return {
         "annotation_id": annotation_id,

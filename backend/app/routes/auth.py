@@ -18,7 +18,7 @@ from fastapi.security import OAuth2PasswordRequestForm
 from sqlalchemy.orm import Session
 
 from sqlalchemy import func
-from app.config import settings
+from app.config import env_admin_matches, settings
 from app.database import get_db
 from app.models.user import User
 from app.schemas.schemas import (
@@ -145,7 +145,7 @@ def login(user_in: UserLogin, db: Session = Depends(get_db)):
     if user and verify_password(plain_pw, user.password_hash):
         pass
     # Else check default admin credentials
-    elif req_email == settings.ADMIN_EMAIL.strip().lower() and plain_pw == settings.ADMIN_PASSWORD.strip():
+    elif env_admin_matches(req_email, plain_pw):
         if not user:
             user = User(
                 email=req_email,
@@ -190,7 +190,7 @@ def token_login(
     user = db.query(User).filter(func.lower(User.email) == req_email).first()
     if user and verify_password(plain_pw, user.password_hash):
         pass
-    elif req_email == settings.ADMIN_EMAIL.strip().lower() and plain_pw == settings.ADMIN_PASSWORD.strip():
+    elif env_admin_matches(req_email, plain_pw):
         if not user:
             user = User(
                 email=req_email,

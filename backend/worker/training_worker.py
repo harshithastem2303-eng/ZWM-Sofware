@@ -13,7 +13,7 @@ Notes:
 - Prepares a local YOLO dataset under worker/datasets/{job_id} from uploads/permanent/*
 - Calls ultralytics.YOLO.train(...) to start training (this requires ultralytics installed and GPU for reasonable speed).
 - After training completes, searches for best.pt under runs/ and copies it to backend/models/{version}_{job_id}_best.pt
-- Updates TrainingJob and creates a ModelVersion row; promotes the new model to is_current=True and clears previous current model.
+- Updates TrainingJob and creates a ModelVersion row; activation goes through the A4 deployment engine (lock, staging, audit).
 
 This worker is intentionally simple for development use.
 """
@@ -44,7 +44,6 @@ MODELS_DIR = Path(settings.YOLO_MODEL_PATH).resolve().parent
 RUNS_ROOT = Path.cwd() / "runs"
 WORKER_ROOT = Path(__file__).resolve().parent
 DATASETS_ROOT = WORKER_ROOT / "datasets"
-DATASETS_ROOT.mkdir(parents=True, exist_ok=True)
 MODELS_DIR.mkdir(parents=True, exist_ok=True)
 
 
@@ -52,11 +51,14 @@ def claim_queued_job(db) -> Optional[TrainingJob]:
     """Claim a single queued job atomically. Returns the TrainingJob or None."""
     try:
         # Try optimistic locking (Postgres): SELECT ... FOR UPDATE SKIP LOCKED
-        q = db.query(TrainingJob).filter(TrainingJob.status == "queued")
+        # Snapshot (automatic) jobs are handled only by the Celery snapshot path.
+        q = db.query(TrainingJob).filter(TrainingJob.status == "queued", TrainingJob.snapshot_id.is_(None))
         job = q.with_for_update(skip_locked=True).first()
     except Exception:
         # Fallback: simple select
-        job = db.query(TrainingJob).filter(TrainingJob.status == "queued").first()
+        job = db.query(TrainingJob).filter(
+            TrainingJob.status == "queued", TrainingJob.snapshot_id.is_(None)
+        ).first()
 
     if not job:
         return None
@@ -73,16 +75,15 @@ def claim_queued_job(db) -> Optional[TrainingJob]:
 
 def build_dataset_from_permanent(dest_dir: Path) -> Tuple[Path, int, List[str]]:
     """
-    Scan settings.UPLOAD_FOLDER/dataset (or permanent) and build YOLO-style dataset under dest_dir.
+    Scan settings.UPLOAD_FOLDER/dataset and build YOLO-style dataset under dest_dir for training.
     Returns (data_yaml_path, nc, names).
     """
     uploads_root = Path(settings.UPLOAD_FOLDER)
     dataset_root = uploads_root / "dataset"
-    perm_root = uploads_root / "permanent"
 
     images = []  # list of (img_path, txt_path)
 
-    # 1. Scan new category-based dataset folder structure: uploads/dataset/{category_slug}/images & labels
+    # 1. Scan category-based dataset folder structure: uploads/dataset/{category_slug}/images & labels
     if dataset_root.exists():
         for cat_dir in dataset_root.iterdir():
             if not cat_dir.is_dir():
@@ -96,20 +97,6 @@ def build_dataset_from_permanent(dest_dir: Path) -> Tuple[Path, int, List[str]]:
                         txt = (lbls_dir / f"{f.stem}.txt") if lbls_dir.exists() else f.with_suffix('.txt')
                         if txt.exists():
                             images.append((img, txt))
-
-    # 2. Fallback scan old permanent structure if present
-    if perm_root.exists():
-        for user_dir in perm_root.iterdir():
-            if not user_dir.is_dir():
-                continue
-            for f in user_dir.iterdir():
-                if f.suffix.lower() in {".jpg", ".jpeg", ".png", ".webp"}:
-                    img = f
-                    txt = f.with_suffix('.txt')
-                    if txt.exists() and (img, txt) not in images:
-                        images.append((img, txt))
-
-    # 3. Fallback scan temporary uploads folder if dataset is empty
     if not images:
         temp_root = uploads_root / "temporary"
         if temp_root.exists():
@@ -154,7 +141,10 @@ def build_dataset_from_permanent(dest_dir: Path) -> Tuple[Path, int, List[str]]:
     # Read categories and build names list
     db = SessionLocal()
     try:
-        cats = db.query(Category).order_by(Category.class_code).all()
+        # names[i] must match YOLO class index i written in label TXT files.
+        from app.services.training_dataset_service import ensure_yolo_class_indices
+        ensure_yolo_class_indices(db)
+        cats = db.query(Category).order_by(Category.yolo_class_index).all()
         names = [c.class_name for c in cats]
         nc = len(names)
     finally:
@@ -260,114 +250,108 @@ def process_job_once() -> bool:
         run_name = f"train_{job.version}_{job_id[:8]}"
         dataset_dir = DATASETS_ROOT / job_id
         if dataset_dir.exists():
-            shutil.rmtree(dataset_dir)
+            shutil.rmtree(dataset_dir, ignore_errors=True)
         dataset_dir.mkdir(parents=True, exist_ok=True)
 
-        # Prepare dataset
         try:
-            data_yaml, nc, names = build_dataset_from_permanent(dataset_dir)
-        except Exception as exc:
-            logger.exception("Dataset preparation failed: %s", exc)
-            job.status = "failed"
-            job.completed_at = datetime.now(timezone.utc)
-            db.add(job)
-            db.commit()
-            return True
-
-        # Run training
-        try:
-            best_pt, metrics = run_ultralytics_training(data_yaml, run_name)
-        except Exception as exc:
-            logger.exception("Training failed for job %s: %s", job_id, exc)
-            job.status = "failed"
-            job.completed_at = datetime.now(timezone.utc)
-            db.add(job)
-            db.commit()
-            return True
-
-        if not best_pt or not best_pt.exists():
-            logger.error("Training finished but no best.pt found for job %s", job_id)
-            job.status = "failed"
-            job.completed_at = datetime.now(timezone.utc)
-            db.add(job)
-            db.commit()
-            return True
-
-        # Copy best.pt into models directory with a deterministic name
-        dest_name = f"{job.version}_{job_id[:8]}_best.pt"
-        dest_path = MODELS_DIR / dest_name
-        try:
-            shutil.copy2(best_pt, dest_path)
-        except Exception as exc:
-            logger.exception("Failed to copy best.pt to models dir: %s", exc)
-            job.status = "failed"
-            job.completed_at = datetime.now(timezone.utc)
-            db.add(job)
-            db.commit()
-            return True
-
-        # Also atomically update the configured YOLO_MODEL_PATH so prediction uses the new model
-        try:
-            target_model_path = Path(settings.YOLO_MODEL_PATH)
-            target_model_path.parent.mkdir(parents=True, exist_ok=True)
-            tmp_target = target_model_path.with_suffix('.tmp')
-            shutil.copy2(dest_path, tmp_target)
-            os.replace(tmp_target, target_model_path)
-        except Exception as exc:
-            logger.exception("Failed to update YOLO_MODEL_PATH (%s): %s", settings.YOLO_MODEL_PATH, exc)
-            # non-fatal: proceed but record the issue in metadata
-
-        # Create ModelVersion and update job within a transactional update
-        try:
-            # unset previous current model in a single UPDATE to avoid race conditions
-            db.query(ModelVersion).filter(ModelVersion.is_current == True).update({"is_current": False})
-
-            new_model = ModelVersion(
-                job_id=job.job_id,
-                version=job.version,
-                is_current=True,
-                map_score=(metrics.get('map50') if isinstance(metrics, dict) else None),
-            )
-            db.add(new_model)
-
-            # Save metadata (metrics, run info) alongside the model
+            # Prepare dataset
             try:
-                metadata = {
-                    "job_id": job.job_id,
-                    "version": job.version,
-                    "run_name": run_name,
-                    "metrics": metrics,
-                    "data_yaml": str(data_yaml),
-                }
-                metadata_path = MODELS_DIR / f"{job.version}_{job_id[:8]}_metadata.json"
-                with open(metadata_path, 'w') as mh:
-                    json.dump(metadata, mh)
-                job.metadata_path = str(metadata_path)
-            except Exception as meta_exc:
-                logger.exception("Failed to write metadata for job %s: %s", job_id, meta_exc)
+                data_yaml, nc, names = build_dataset_from_permanent(dataset_dir)
+            except Exception as exc:
+                logger.exception("Dataset preparation failed: %s", exc)
+                job.status = "failed"
+                job.completed_at = datetime.now(timezone.utc)
+                db.add(job)
+                db.commit()
+                return True
 
-            job.best_model_path = str(dest_path)
-            job.status = "completed"
-            job.completed_at = datetime.now(timezone.utc)
+            # Run training
+            try:
+                best_pt, metrics = run_ultralytics_training(data_yaml, run_name)
+            except Exception as exc:
+                logger.exception("Training failed for job %s: %s", job_id, exc)
+                job.status = "failed"
+                job.completed_at = datetime.now(timezone.utc)
+                db.add(job)
+                db.commit()
+                return True
 
-            db.add(job)
-            db.commit()
-            db.refresh(new_model)
-            logger.info("Job %s completed successfully; model saved to %s", job_id, dest_path)
-        except SQLAlchemyError as exc:
-            db.rollback()
-            logger.exception("DB update failed for job %s: %s", job_id, exc)
-            job.status = "failed"
-            job.completed_at = datetime.now(timezone.utc)
-            db.add(job)
-            db.commit()
+            if not best_pt or not best_pt.exists():
+                logger.error("Training finished but no best.pt found for job %s", job_id)
+                job.status = "failed"
+                job.completed_at = datetime.now(timezone.utc)
+                db.add(job)
+                db.commit()
+                return True
 
-        # Cleanup dataset_dir to save disk space (best-effort)
-        try:
+            # Copy best.pt into models directory with a deterministic name
+            dest_name = f"{job.version}_{job_id[:8]}_best.pt"
+            dest_path = MODELS_DIR / dest_name
+            try:
+                shutil.copy2(best_pt, dest_path)
+            except Exception as exc:
+                logger.exception("Failed to copy best.pt to models dir: %s", exc)
+                job.status = "failed"
+                job.completed_at = datetime.now(timezone.utc)
+                db.add(job)
+                db.commit()
+                return True
+
+            # Register the model (inactive); activation goes through the A4 deployment
+            # engine after the commit, never by writing YOLO_MODEL_PATH here (A4.1).
+            try:
+                new_model = ModelVersion(
+                    job_id=job.job_id,
+                    version=job.version,
+                    is_current=False,
+                    map_score=(metrics.get('map50') if isinstance(metrics, dict) else None),
+                )
+                db.add(new_model)
+
+                # Save metadata (metrics, run info) alongside the model
+                try:
+                    metadata = {
+                        "job_id": job.job_id,
+                        "version": job.version,
+                        "run_name": run_name,
+                        "metrics": metrics,
+                        "data_yaml": str(data_yaml),
+                    }
+                    metadata_path = MODELS_DIR / f"{job.version}_{job_id[:8]}_metadata.json"
+                    with open(metadata_path, 'w') as mh:
+                        json.dump(metadata, mh)
+                    job.metadata_path = str(metadata_path)
+                except Exception as meta_exc:
+                    logger.exception("Failed to write metadata for job %s: %s", job_id, meta_exc)
+
+                job.best_model_path = str(dest_path)
+                job.status = "completed"
+                job.completed_at = datetime.now(timezone.utc)
+
+                db.add(job)
+                db.commit()
+                db.refresh(new_model)
+                logger.info("Job %s completed successfully; model saved to %s", job_id, dest_path)
+                from app.services.model_deployment_service import activate_after_legacy_training
+                logger.info("Job %s model activation: %s", job_id,
+                            activate_after_legacy_training(db, new_model.model_id))
+            except SQLAlchemyError as exc:
+                db.rollback()
+                logger.exception("DB update failed for job %s: %s", job_id, exc)
+                job.status = "failed"
+                job.completed_at = datetime.now(timezone.utc)
+                db.add(job)
+                db.commit()
+
+            return True
+        finally:
             if dataset_dir.exists():
-                shutil.rmtree(dataset_dir)
-        except Exception:
-            logger.warning("Failed to remove dataset dir %s (non-fatal)", dataset_dir)
+                shutil.rmtree(dataset_dir, ignore_errors=True)
+            if DATASETS_ROOT.exists() and not any(DATASETS_ROOT.iterdir()):
+                try:
+                    DATASETS_ROOT.rmdir()
+                except Exception:
+                    pass
 
         return True
     finally:

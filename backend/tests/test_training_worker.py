@@ -16,7 +16,12 @@ from app.models.user import User
 from worker import training_worker
 
 ROOT = Path(training_worker.WORKER_ROOT.parent)
-UPLOADS = Path(training_worker.DATASETS_ROOT.parent.parent) / 'uploads'
+
+
+def _uploads() -> Path:
+    # A5.1: the configured (disposable, under tests) upload root -- never the repository's uploads/
+    from app.config import settings
+    return Path(settings.UPLOAD_FOLDER)
 
 
 def ensure_db_available():
@@ -28,6 +33,56 @@ def ensure_db_available():
         db.close()
     except OperationalError:
         pytest.skip('Database not available for integration tests')
+
+
+def _model_state():
+    """(existing model ids, current model ids) in the shared test DB, or None without a DB."""
+    session = SessionLocal()
+    try:
+        rows = session.query(ModelVersion.model_id, ModelVersion.is_current).all()
+        return {m for m, _ in rows}, {m for m, cur in rows if cur}
+    except Exception:
+        return None
+    finally:
+        session.close()
+
+
+def _restore_model_state(before):
+    """
+    Legacy training activates the model it registers. Remove model rows a test
+    created and restore the previous current flags so no mock active model leaks
+    into later modules (e.g. test_ml::test_get_current_model_none). Flags are
+    cleared first: the database allows only one current model (Block A4.1).
+    """
+    if before is None:
+        return
+    existing, current = before
+    session = SessionLocal()
+    try:
+        session.query(ModelVersion).update({"is_current": False}, synchronize_session=False)
+        for mv in session.query(ModelVersion).all():
+            if mv.model_id not in existing:
+                session.delete(mv)
+        session.flush()
+        for mv in session.query(ModelVersion).filter(ModelVersion.model_id.in_(current)).all():
+            mv.is_current = True
+        session.commit()
+    except Exception:
+        session.rollback()
+    finally:
+        session.close()
+
+
+@pytest.fixture()
+def isolated_serving_paths(monkeypatch, tmp_path):
+    """Serving file and retained deployment artifacts under tmp_path (never the repository models dir)."""
+    from app.config import settings
+    active = tmp_path / "serving" / "best.pt"
+    active.parent.mkdir()
+    active.write_bytes(b"ACTIVE")
+    monkeypatch.setattr(settings, "YOLO_MODEL_PATH", str(active))
+    monkeypatch.setattr(settings, "DEPLOYED_MODELS_DIR", str(tmp_path / "deployed"))
+    return active
 
 
 
@@ -49,7 +104,7 @@ def setup_permanent_image(db, user_id='testuser'):
         db.commit()
 
     # create directories
-    perm_dir = UPLOADS / 'permanent' / actual_user_id
+    perm_dir = _uploads() / 'permanent' / actual_user_id
     perm_dir.mkdir(parents=True, exist_ok=True)
     img_path = perm_dir / 'testimg.jpg'
     txt_path = perm_dir / 'testimg.txt'
@@ -73,7 +128,12 @@ def setup_permanent_image(db, user_id='testuser'):
 
 
 @pytest.fixture(autouse=True)
-def cleanup_dirs():
+def cleanup_dirs(isolated_serving_paths, monkeypatch, tmp_path):
+    # A5.1: the worker's run/dataset/model roots live under tmp_path; the rmtree calls
+    # below can no longer reach the repository's worker/ or runs/ directories.
+    monkeypatch.setattr(training_worker, "RUNS_ROOT", tmp_path / "runs")
+    monkeypatch.setattr(training_worker, "DATASETS_ROOT", tmp_path / "worker_datasets")
+    monkeypatch.setattr(training_worker, "MODELS_DIR", isolated_serving_paths.parent)
     # ensure runs and datasets are clean before/after tests
     try:
         if training_worker.RUNS_ROOT.exists():
@@ -85,7 +145,9 @@ def cleanup_dirs():
             shutil.rmtree(training_worker.DATASETS_ROOT)
     except Exception:
         pass
+    before = _model_state()
     yield
+    _restore_model_state(before)
     try:
         if training_worker.RUNS_ROOT.exists():
             shutil.rmtree(training_worker.RUNS_ROOT)

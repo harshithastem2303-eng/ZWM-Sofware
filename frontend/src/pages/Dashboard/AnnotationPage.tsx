@@ -21,6 +21,7 @@ import { TopBar } from '../../components/dashboard/TopBar';
 import { useAuth } from '../../context/AuthContext';
 import { request, fetchActiveCategories } from '../../services/api';
 import { annotationService } from '../../services/annotationService';
+import { PredictionFeedbackPanel, FeedbackShape } from '../../components/feedback/PredictionFeedbackPanel';
 
 type AnnotationTool = 'rectangle' | 'polygon' | 'circle' | 'freehand' | 'ai_polygon' | 'select';
 
@@ -55,7 +56,7 @@ const TOOL_COLORS = ['#22c55e', '#3b82f6', '#f59e0b', '#ef4444', '#8b5cf6', '#06
 export const AnnotationPage: React.FC = () => {
   const navigate = useNavigate();
   const location = useLocation();
-  const { refreshStats } = useAuth();
+  const { refreshStats, updateStats } = useAuth();
 
   const { imageId, previewUrl: passedPreviewUrl } = (location.state || {}) as {
     imageId?: string;
@@ -91,6 +92,9 @@ export const AnnotationPage: React.FC = () => {
   // SaaS UI Floating Panels State
   const [showLayersPanel, setShowLayersPanel] = useState<boolean>(true);
   const [zoomLevel, setZoomLevel] = useState<number>(100);
+
+  // Block A6.2: bumped after every AI request so the feedback panel lists the new prediction
+  const [aiRunCount, setAiRunCount] = useState<number>(0);
 
   const handleDeleteShape = (id: string) => {
     setAnnotations((prev) => prev.filter((a) => a.id !== id));
@@ -422,6 +426,7 @@ export const AnnotationPage: React.FC = () => {
       setErrorMessage(err.message || 'AI Segmentation request failed.');
     } finally {
       setAiSegmenting(false);
+      setAiRunCount((n) => n + 1);
     }
   };
 
@@ -465,8 +470,26 @@ export const AnnotationPage: React.FC = () => {
       setErrorMessage(err.message || 'AI full segmentation failed.');
     } finally {
       setAiSegmenting(false);
+      setAiRunCount((n) => n + 1);
     }
   };
+
+  // Drawn shapes as suggested corrections, in original image pixels (the space AI
+  // predictions are recorded in). Circles have no bbox/polygon form and are not offered.
+  const feedbackShapes: FeedbackShape[] = annotations.map((ann) => {
+    const sx = imgDimensions.width ? imgDimensions.naturalWidth / imgDimensions.width : 1;
+    const sy = imgDimensions.height ? imgDimensions.naturalHeight / imgDimensions.height : 1;
+    const pts = ann.points.map((p) => ({ x: Math.round(p.x * sx * 100) / 100, y: Math.round(p.y * sy * 100) / 100 }));
+    if (ann.type === 'rectangle' && pts.length >= 2) {
+      const xs = pts.map((p) => p.x);
+      const ys = pts.map((p) => p.y);
+      return { label: ann.label, geometry: { type: 'bbox', bbox: [Math.min(...xs), Math.min(...ys), Math.max(...xs), Math.max(...ys)] } };
+    }
+    if (ann.type !== 'circle' && pts.length >= 3) {
+      return { label: ann.label, geometry: { type: 'polygon', points: pts } };
+    }
+    return { label: ann.label, geometry: null };
+  });
 
   function finishAnnotation(type: AnnotationTool, points: Point[]) {
     const color = TOOL_COLORS[annotations.length % TOOL_COLORS.length];
@@ -482,6 +505,10 @@ export const AnnotationPage: React.FC = () => {
     setAnnotations(prev => [...prev, newAnn]);
     setCurrentPoints([]);
     setIsDrawing(false);
+
+    // Show the category selection prompt modal in center of page
+    setPendingAnn(newAnn);
+    setShowCategoryModal(true);
   }
 
   const handleUndo = () => {
@@ -533,7 +560,7 @@ export const AnnotationPage: React.FC = () => {
           labelData = { points: nativePoints };
         }
 
-        await request('/annotations/', {
+        const res: any = await request('/annotations/', {
           method: 'POST',
           body: JSON.stringify({
             image_id: imageId,
@@ -547,10 +574,17 @@ export const AnnotationPage: React.FC = () => {
         });
 
         ann.saved = true;
+
+        if (res && typeof res.user_reward_points === 'number') {
+          updateStats({ reward_points: res.user_reward_points });
+        }
       }
 
-      refreshStats();
-      setSavedMessage('Annotations successfully saved! +15 points awarded. 🎉');
+      // Finish labeling: the complete object set becomes training data in one step.
+      await request(`/annotations/image/${imageId}/finalize`, { method: 'POST' });
+
+      await refreshStats();
+      setSavedMessage('Annotations successfully saved! +15 points awarded to your profile & top bar. 🎉');
 
       // Auto redirect to user dashboard
       setTimeout(() => {
@@ -610,15 +644,17 @@ export const AnnotationPage: React.FC = () => {
           backdropFilter: 'blur(16px)',
           WebkitBackdropFilter: 'blur(16px)',
           borderBottom: '1px solid rgba(255, 255, 255, 0.08)',
-          padding: '0 24px',
+          padding: '0 16px',
           display: 'flex',
           alignItems: 'center',
           justifyContent: 'space-between',
           flexShrink: 0,
           zIndex: 50,
+          gap: '12px',
+          overflowX: 'auto',
         }}
       >
-        <div style={{ display: 'flex', alignItems: 'center', gap: '16px' }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: '12px', flexShrink: 1, minWidth: 0 }}>
           <button
             onClick={() => navigate('/dashboard/upload')}
             className="tool-btn-hover"
@@ -626,53 +662,56 @@ export const AnnotationPage: React.FC = () => {
               backgroundColor: 'rgba(51, 65, 85, 0.5)',
               border: '1px solid rgba(255, 255, 255, 0.1)',
               borderRadius: '10px',
-              padding: '8px 16px',
+              padding: '6px 12px',
               color: '#f8fafc',
               fontWeight: 600,
-              fontSize: '0.85rem',
+              fontSize: '0.8rem',
               cursor: 'pointer',
               display: 'flex',
               alignItems: 'center',
-              gap: '8px',
+              gap: '6px',
               transition: 'all 0.2s ease',
+              whiteSpace: 'nowrap',
             }}
           >
-            <ArrowLeft size={16} /> Back to Upload
+            <ArrowLeft size={15} /> Back
           </button>
 
-          <div style={{ height: '24px', width: '1px', backgroundColor: 'rgba(255,255,255,0.1)' }} />
+          <div style={{ height: '20px', width: '1px', backgroundColor: 'rgba(255,255,255,0.1)', flexShrink: 0 }} />
 
-          <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: '8px', minWidth: 0 }}>
             <span
               style={{
                 background: 'linear-gradient(135deg, #8b5cf6 0%, #6366f1 100%)',
                 color: '#ffffff',
-                fontSize: '0.72rem',
+                fontSize: '0.7rem',
                 fontWeight: 800,
-                padding: '3px 9px',
+                padding: '2px 7px',
                 borderRadius: '6px',
                 letterSpacing: '0.5px',
                 textTransform: 'uppercase',
+                whiteSpace: 'nowrap',
               }}
             >
-              ZWM Studio v2.4
+              ZWM Studio
             </span>
-            <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-              <h2 style={{ margin: 0, fontSize: '1.08rem', fontWeight: 800, color: '#f8fafc', letterSpacing: '-0.01em' }}>
-                Annotator Workspace
+            <div style={{ display: 'flex', alignItems: 'center', gap: '6px', minWidth: 0 }}>
+              <h2 style={{ margin: 0, fontSize: '0.98rem', fontWeight: 800, color: '#f8fafc', letterSpacing: '-0.01em', whiteSpace: 'nowrap' }}>
+                Annotator
               </h2>
               <span
                 style={{
                   display: 'flex',
                   alignItems: 'center',
-                  gap: '6px',
+                  gap: '4px',
                   backgroundColor: 'rgba(34, 197, 94, 0.12)',
                   border: '1px solid rgba(34, 197, 94, 0.25)',
                   color: '#4ade80',
-                  fontSize: '0.75rem',
+                  fontSize: '0.72rem',
                   fontWeight: 700,
-                  padding: '3px 10px',
+                  padding: '2px 8px',
                   borderRadius: '20px',
+                  whiteSpace: 'nowrap',
                 }}
               >
                 <span
@@ -698,10 +737,11 @@ export const AnnotationPage: React.FC = () => {
             backgroundColor: 'rgba(30, 41, 59, 0.85)',
             backdropFilter: 'blur(16px)',
             borderRadius: '32px',
-            padding: '5px',
+            padding: '4px',
             border: '1px solid rgba(255, 255, 255, 0.12)',
-            gap: '4px',
+            gap: '3px',
             boxShadow: '0 8px 32px rgba(0, 0, 0, 0.4)',
+            flexShrink: 0,
           }}
         >
           {tools.map((tool) => {
@@ -718,8 +758,8 @@ export const AnnotationPage: React.FC = () => {
                 style={{
                   display: 'flex',
                   alignItems: 'center',
-                  gap: '8px',
-                  padding: '8px 18px',
+                  gap: '6px',
+                  padding: '6px 12px',
                   borderRadius: '24px',
                   border: 'none',
                   background: isActive
@@ -729,7 +769,7 @@ export const AnnotationPage: React.FC = () => {
                     : 'transparent',
                   color: isActive ? '#ffffff' : '#94a3b8',
                   fontWeight: isActive ? 700 : 500,
-                  fontSize: '0.85rem',
+                  fontSize: '0.8rem',
                   cursor: 'pointer',
                   transition: 'all 0.2s cubic-bezier(0.34, 1.56, 0.64, 1)',
                   boxShadow: isActive
@@ -737,6 +777,7 @@ export const AnnotationPage: React.FC = () => {
                       ? '0 4px 15px rgba(139, 92, 246, 0.4)'
                       : '0 4px 15px rgba(16, 185, 129, 0.35)'
                     : 'none',
+                  whiteSpace: 'nowrap',
                 }}
               >
                 {tool.icon}
@@ -745,7 +786,7 @@ export const AnnotationPage: React.FC = () => {
             );
           })}
 
-          <div style={{ width: '1px', height: '22px', backgroundColor: 'rgba(255, 255, 255, 0.12)', margin: '0 4px' }} />
+          <div style={{ width: '1px', height: '20px', backgroundColor: 'rgba(255, 255, 255, 0.12)', margin: '0 2px' }} />
 
           <button
             onClick={handleUndo}
@@ -754,26 +795,27 @@ export const AnnotationPage: React.FC = () => {
             style={{
               display: 'flex',
               alignItems: 'center',
-              gap: '6px',
-              padding: '8px 14px',
+              gap: '4px',
+              padding: '6px 10px',
               borderRadius: '24px',
               border: 'none',
               backgroundColor: 'transparent',
               color: '#94a3b8',
               fontWeight: 600,
-              fontSize: '0.85rem',
+              fontSize: '0.8rem',
               cursor: 'pointer',
+              whiteSpace: 'nowrap',
             }}
           >
-            <Undo2 size={16} />
+            <Undo2 size={15} />
             <span>Undo</span>
           </button>
         </div>
 
         {/* Header Action Right: Active Category Selector & Save Button */}
-        <div style={{ display: 'flex', alignItems: 'center', gap: '16px' }}>
-          <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
-            <span style={{ fontSize: '0.82rem', color: '#94a3b8', fontWeight: 600 }}>Active Class:</span>
+        <div style={{ display: 'flex', alignItems: 'center', gap: '12px', flexShrink: 0 }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+            <span style={{ fontSize: '0.8rem', color: '#94a3b8', fontWeight: 600, whiteSpace: 'nowrap' }}>Active Class:</span>
             <select
               value={activeCategoryId || ''}
               onChange={(e) => setActiveCategoryId(Number(e.target.value))}
@@ -782,11 +824,12 @@ export const AnnotationPage: React.FC = () => {
                 color: '#f8fafc',
                 border: '1px solid rgba(255, 255, 255, 0.15)',
                 borderRadius: '10px',
-                padding: '7px 14px',
-                fontSize: '0.85rem',
+                padding: '6px 10px',
+                fontSize: '0.82rem',
                 fontWeight: 600,
                 cursor: 'pointer',
                 outline: 'none',
+                maxWidth: '140px',
               }}
             >
               {categories.map((cat) => (
@@ -804,28 +847,30 @@ export const AnnotationPage: React.FC = () => {
             style={{
               display: 'flex',
               alignItems: 'center',
-              gap: '8px',
+              gap: '6px',
               background: annotations.length > 0
                 ? 'linear-gradient(135deg, #10b981 0%, #059669 100%)'
                 : 'rgba(51, 65, 85, 0.6)',
               color: '#ffffff',
               border: 'none',
               borderRadius: '10px',
-              padding: '9px 22px',
+              padding: '8px 18px',
               fontWeight: 700,
-              fontSize: '0.9rem',
+              fontSize: '0.85rem',
               cursor: annotations.length > 0 ? 'pointer' : 'not-allowed',
               boxShadow: annotations.length > 0 ? '0 4px 18px rgba(16, 185, 129, 0.35)' : 'none',
               transition: 'all 0.2s ease',
+              whiteSpace: 'nowrap',
+              flexShrink: 0,
             }}
           >
             {saving ? (
               <>
-                <Loader2 size={18} className="animate-spin" /> Saving...
+                <Loader2 size={16} className="animate-spin" /> Saving...
               </>
             ) : (
               <>
-                <Save size={18} /> Save & Earn Points
+                <Save size={16} /> Save & Earn Points
               </>
             )}
           </button>
@@ -1098,6 +1143,10 @@ export const AnnotationPage: React.FC = () => {
           </div>
         </div>
       </main>
+
+      {imageId && (
+        <PredictionFeedbackPanel imageId={imageId} refreshKey={aiRunCount} categories={categories} shapes={feedbackShapes} />
+      )}
 
       {/* Interactive Category Selection Prompt Modal */}
       {showCategoryModal && pendingAnn && (

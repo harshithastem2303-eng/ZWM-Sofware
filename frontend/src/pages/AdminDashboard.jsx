@@ -8,6 +8,10 @@ import ValidationView from './ValidationView';
 import UsersView from './UsersView';
 import ReportsView from './ReportsView';
 import SettingsView from './SettingsView';
+import ModelsView from './ModelsView';
+import MonitoringView from './MonitoringView';
+import FeedbackView from './FeedbackView';
+import LabelRevisionsView from './LabelRevisionsView';
 
 const AdminDashboard = () => {
   const navigate = useNavigate();
@@ -74,6 +78,14 @@ const AdminDashboard = () => {
         return <UsersView />;
       case 'reports':
         return <ReportsView analytics={analytics} />;
+      case 'models':
+        return <ModelsView />;
+      case 'monitoring':
+        return <MonitoringView />;
+      case 'feedback':
+        return <FeedbackView />;
+      case 'label-revisions':
+        return <LabelRevisionsView />;
       case 'settings':
         return <SettingsView />;
       default:

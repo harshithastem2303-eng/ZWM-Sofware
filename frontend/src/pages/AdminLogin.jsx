@@ -32,9 +32,13 @@ const AdminLogin = () => {
     e.preventDefault();
     setError('');
 
-    // If fields are empty, automatically fallback to default credentials
-    const finalEmail = email.trim() || 'admin@gmail.com';
-    const finalPassword = password || 'user123';
+    // Both fields are required; nothing is ever submitted on the user's behalf.
+    const finalEmail = email.trim();
+    const finalPassword = password;
+    if (!finalEmail || !finalPassword) {
+      setError('Please enter your admin email and password.');
+      return;
+    }
 
     setLoading(true);
 

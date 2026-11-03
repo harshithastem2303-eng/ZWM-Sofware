@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import {
   Star,
@@ -10,23 +10,83 @@ import {
   CheckCircle,
   ArrowLeft,
   Clock,
+  LogOut,
 } from 'lucide-react';
 import { useAuth } from '../../context/AuthContext';
+import { userService } from '../../services/userService';
 import { Button } from '../../components/common/Button';
 import { TopBar } from '../../components/dashboard/TopBar';
 
+function formatRelativeTime(dateString?: string | null): string {
+  if (!dateString) return 'Recently';
+  try {
+    const date = new Date(dateString);
+    if (isNaN(date.getTime())) return 'Recently';
+    const now = new Date();
+    const diffSec = Math.floor((now.getTime() - date.getTime()) / 1000);
+
+    if (diffSec < 60) return 'Just now';
+    const diffMin = Math.floor(diffSec / 60);
+    if (diffMin < 60) return `${diffMin} ${diffMin === 1 ? 'minute' : 'minutes'} ago`;
+    const diffHours = Math.floor(diffMin / 60);
+    if (diffHours < 24) return `${diffHours} ${diffHours === 1 ? 'hour' : 'hours'} ago`;
+    const diffDays = Math.floor(diffHours / 24);
+    if (diffDays === 1) return 'Yesterday';
+    if (diffDays < 7) return `${diffDays} days ago`;
+    const diffWeeks = Math.floor(diffDays / 7);
+    if (diffWeeks < 5) return `${diffWeeks} ${diffWeeks === 1 ? 'week' : 'weeks'} ago`;
+    return date.toLocaleDateString();
+  } catch {
+    return 'Recently';
+  }
+}
+
 export const ProfilePage: React.FC = () => {
   const navigate = useNavigate();
-  const { user, stats } = useAuth();
+  const { user, stats, logout } = useAuth();
   const [activeTab, setActiveTab] = useState<'overview' | 'rewards' | 'settings'>('overview');
+  const [transactions, setTransactions] = useState<
+    Array<{ id: string | number; desc: string; points: number; time: string }>
+  >([]);
+  const [loadingTransactions, setLoadingTransactions] = useState(false);
 
-  const transactions = [
-    { id: 1, desc: 'Verified Plastic Bottle Upload', points: 10, time: '2 hours ago', type: 'upload' },
-    { id: 2, desc: 'Paper Box Annotation Verified', points: 15, time: 'Yesterday', type: 'annotation' },
-    { id: 3, desc: 'Metal Can Multi-Object Detection', points: 10, time: '3 days ago', type: 'upload' },
-    { id: 4, desc: 'Early Dataset Contributor Bonus', points: 50, time: '1 week ago', type: 'bonus' },
-    { id: 5, desc: 'Glass Bottle Validation Streak', points: 20, time: '2 weeks ago', type: 'streak' },
-  ];
+  useEffect(() => {
+    let isMounted = true;
+    async function fetchUserRewards() {
+      setLoadingTransactions(true);
+      try {
+        const res = await userService.getRewardHistory();
+        if (isMounted && res?.history) {
+          const formatted = res.history.map((tx) => ({
+            id: tx.transaction_id,
+            desc: tx.description,
+            points: tx.points,
+            time: formatRelativeTime(tx.created_at),
+          }));
+          setTransactions(formatted);
+        }
+      } catch (err) {
+        console.warn('Could not load user reward transactions:', err);
+        if (isMounted) {
+          const pts = user?.reward_points ?? stats?.reward_points ?? 0;
+          if (pts > 0) {
+            setTransactions([
+              { id: 'user-pts', desc: 'Verified Contributor Points', points: pts, time: 'Current balance' },
+            ]);
+          } else {
+            setTransactions([]);
+          }
+        }
+      } finally {
+        if (isMounted) setLoadingTransactions(false);
+      }
+    }
+
+    fetchUserRewards();
+    return () => {
+      isMounted = false;
+    };
+  }, [user?.user_id, activeTab]);
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: '24px' }}>
@@ -122,7 +182,7 @@ export const ProfilePage: React.FC = () => {
             <Star size={16} fill="var(--cta-green)" color="var(--primary-green)" /> Total Points
           </div>
           <div style={{ fontSize: '2.4rem', fontWeight: 800, color: 'var(--cta-green)', lineHeight: 1.1, marginTop: '4px' }}>
-            {stats.reward_points ?? 320}
+            {user?.reward_points ?? stats?.reward_points ?? 0}
           </div>
           <span style={{ fontSize: '0.75rem', color: 'var(--text-secondary)', fontWeight: 500 }}>
             Redeemable for eco-perks
@@ -174,7 +234,7 @@ export const ProfilePage: React.FC = () => {
                 <span style={{ fontWeight: 600, color: 'var(--neutral-700)', fontSize: '0.9rem' }}>Total Images Uploaded</span>
               </div>
               <span style={{ fontWeight: 800, color: 'var(--primary-700)', fontSize: '1.2rem' }}>
-                {stats.total_uploads ?? 128}
+                {stats.total_uploads ?? user?.image_count ?? 0}
               </span>
             </div>
 
@@ -184,7 +244,7 @@ export const ProfilePage: React.FC = () => {
                 <span style={{ fontWeight: 600, color: 'var(--neutral-700)', fontSize: '0.9rem' }}>Validated Datasets</span>
               </div>
               <span style={{ fontWeight: 800, color: 'var(--primary-700)', fontSize: '1.2rem' }}>
-                {stats.validated_images ?? 96}
+                {stats.validated_images ?? 0}
               </span>
             </div>
 
@@ -194,7 +254,7 @@ export const ProfilePage: React.FC = () => {
                 <span style={{ fontWeight: 600, color: 'var(--neutral-700)', fontSize: '0.9rem' }}>Pending Verification</span>
               </div>
               <span style={{ fontWeight: 800, color: '#f59e0b', fontSize: '1.2rem' }}>
-                {stats.pending_images ?? 32}
+                {stats.pending_images ?? 0}
               </span>
             </div>
           </div>
@@ -215,32 +275,56 @@ export const ProfilePage: React.FC = () => {
             Recent Points & Reward Transactions
           </h3>
           <div style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
-            {transactions.map((tx) => (
+            {loadingTransactions && transactions.length === 0 ? (
+              <div style={{ textAlign: 'center', padding: '24px', color: 'var(--neutral-400)', fontSize: '0.88rem' }}>
+                Loading your reward history...
+              </div>
+            ) : transactions.length > 0 ? (
+              transactions.map((tx) => (
+                <div
+                  key={tx.id}
+                  style={{
+                    display: 'flex',
+                    justifyContent: 'space-between',
+                    alignItems: 'center',
+                    padding: '14px 18px',
+                    borderRadius: 'var(--radius-md)',
+                    backgroundColor: '#f8fafc',
+                    border: '1px solid #f1f5f9',
+                  }}
+                >
+                  <div>
+                    <div style={{ fontWeight: 600, color: 'var(--neutral-800)', fontSize: '0.92rem' }}>
+                      {tx.desc}
+                    </div>
+                    <div style={{ fontSize: '0.78rem', color: 'var(--neutral-400)', marginTop: '2px' }}>
+                      {tx.time}
+                    </div>
+                  </div>
+                  <div style={{ fontWeight: 800, color: 'var(--primary-600)', fontSize: '1.1rem' }}>
+                    +{tx.points} pts
+                  </div>
+                </div>
+              ))
+            ) : (
               <div
-                key={tx.id}
                 style={{
-                  display: 'flex',
-                  justifyContent: 'space-between',
-                  alignItems: 'center',
-                  padding: '14px 18px',
+                  textAlign: 'center',
+                  padding: '36px 16px',
                   borderRadius: 'var(--radius-md)',
                   backgroundColor: '#f8fafc',
-                  border: '1px solid #f1f5f9',
+                  border: '1px dashed #cbd5e1',
+                  color: 'var(--neutral-500)',
                 }}
               >
-                <div>
-                  <div style={{ fontWeight: 600, color: 'var(--neutral-800)', fontSize: '0.92rem' }}>
-                    {tx.desc}
-                  </div>
-                  <div style={{ fontSize: '0.78rem', color: 'var(--neutral-400)', marginTop: '2px' }}>
-                    {tx.time}
-                  </div>
+                <div style={{ fontWeight: 600, fontSize: '0.95rem', color: 'var(--neutral-700)' }}>
+                  No reward transactions yet
                 </div>
-                <div style={{ fontWeight: 800, color: 'var(--primary-600)', fontSize: '1.1rem' }}>
-                  +{tx.points} pts
-                </div>
+                <p style={{ fontSize: '0.82rem', color: 'var(--neutral-400)', marginTop: '4px', margin: '4px 0 0' }}>
+                  Upload waste photos or annotate datasets to earn class-wise points on your account.
+                </p>
               </div>
-            ))}
+            )}
           </div>
         </div>
       )}
@@ -268,9 +352,26 @@ export const ProfilePage: React.FC = () => {
               <label className="form-label">Email Address</label>
               <input className="form-input" defaultValue={user.email || 'keerthana@zwm.eco'} disabled />
             </div>
-            <Button variant="primary" style={{ alignSelf: 'flex-start' }}>
-              Save Changes
-            </Button>
+            <div style={{ display: 'flex', gap: '12px', alignItems: 'center', marginTop: '8px' }}>
+              <Button
+                variant="primary"
+                onClick={() => {
+                  logout();
+                  navigate('/');
+                }}
+                style={{
+                  alignSelf: 'flex-start',
+                  display: 'inline-flex',
+                  alignItems: 'center',
+                  gap: '8px',
+                  backgroundColor: '#168a1a',
+                  color: '#ffffff',
+                  fontWeight: 700,
+                }}
+              >
+                <LogOut size={16} /> Logout
+              </Button>
+            </div>
           </div>
         </div>
       )}

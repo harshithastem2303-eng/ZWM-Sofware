@@ -62,6 +62,7 @@ from app.routes.annotation import router as annotation_router
 from app.routes.lifecycle import router as lifecycle_router
 from app.routes.category import router as category_router
 from app.routes.ai_segmentation import router as ai_segmentation_router
+from app.routes.label_revisions import router as label_revisions_router
 from app.services.cleanup_worker import start_scheduler, stop_scheduler
 
 # ---------------------------------------------------------------------------
@@ -87,68 +88,74 @@ def init_db_and_seed():
 
         db = SessionLocal()
         try:
-            # Seed Admin User in User & Admin tables
+            # Seed Admin User in User & Admin tables — only when a bootstrap admin is configured (A5.1)
             from app.models.user import Admin
-            admin_email = settings.ADMIN_EMAIL.strip().lower()
-            admin_password = settings.ADMIN_PASSWORD.strip()
-            admin_user = db.query(User).filter(User.email == admin_email).first()
-            if not admin_user:
-                admin_user = User(
-                    email=admin_email,
-                    password_hash=get_password_hash(admin_password),
-                    full_name="System Admin",
-                    role="admin",
-                    is_email_verified=True,
-                )
-                db.add(admin_user)
-            else:
-                admin_user.password_hash = get_password_hash(admin_password)
-                admin_user.role = "admin"
+            from app.config import env_admin_configured
+            if env_admin_configured(settings):
+                admin_email = settings.ADMIN_EMAIL.strip().lower()
+                admin_password = settings.ADMIN_PASSWORD.strip()
+                admin_user = db.query(User).filter(User.email == admin_email).first()
+                if not admin_user:
+                    admin_user = User(
+                        email=admin_email,
+                        password_hash=get_password_hash(admin_password),
+                        full_name="System Admin",
+                        role="admin",
+                        is_email_verified=True,
+                    )
+                    db.add(admin_user)
+                else:
+                    admin_user.password_hash = get_password_hash(admin_password)
+                    admin_user.role = "admin"
 
-            admin_rec = db.query(Admin).filter(Admin.admin_email == admin_email).first()
-            if not admin_rec:
-                admin_rec = Admin(
-                    admin_email=admin_email,
-                    admin_name="System Admin",
-                    hash_password=get_password_hash(admin_password),
-                    is_email_verified=True,
-                )
-                db.add(admin_rec)
-            else:
-                admin_rec.hash_password = get_password_hash(admin_password)
+                admin_rec = db.query(Admin).filter(Admin.admin_email == admin_email).first()
+                if not admin_rec:
+                    admin_rec = Admin(
+                        admin_email=admin_email,
+                        admin_name="System Admin",
+                        hash_password=get_password_hash(admin_password),
+                        is_email_verified=True,
+                    )
+                    db.add(admin_rec)
+                else:
+                    admin_rec.hash_password = get_password_hash(admin_password)
 
-            # Seed Demo User
-            demo_email = "keerthana@zwm.eco"
-            demo_user = db.query(User).filter(User.email == demo_email).first()
-            if not demo_user:
-                demo_user = User(
-                    email=demo_email,
-                    password_hash=get_password_hash("password123"),
-                    full_name="Keerthana H M",
-                    role="user",
-                    is_email_verified=True,
-                    reward_points=320,
-                    image_count=128
-                )
-                db.add(demo_user)
-            else:
-                demo_user.password_hash = get_password_hash("password123")
-                demo_user.role = "user"
-                demo_user.is_email_verified = True
+            # Optional demo contributor: explicit env credentials, never in production (A5.1)
+            demo_email = settings.DEMO_USER_EMAIL.strip().lower()
+            demo_password = settings.DEMO_USER_PASSWORD.strip()
+            if demo_email and demo_password and not settings.is_production:
+                demo_user = db.query(User).filter(User.email == demo_email).first()
+                if not demo_user:
+                    demo_user = User(
+                        email=demo_email,
+                        password_hash=get_password_hash(demo_password),
+                        full_name="Demo Contributor",
+                        role="user",
+                        is_email_verified=True,
+                        reward_points=0,
+                        image_count=0
+                    )
+                    db.add(demo_user)
+                else:
+                    demo_user.password_hash = get_password_hash(demo_password)
+                    demo_user.role = "user"
+                    demo_user.is_email_verified = True
 
             db.commit()
 
-            # Seed Default Categories if table is empty
-            if db.query(Category).count() == 0:
-                default_categories = [
-                    {"name": "Plastic", "code": 101, "desc": "Plastic bottles, containers, and packaging"},
-                    {"name": "Paper & Cardboard", "code": 102, "desc": "Paper sheets, magazines, boxes, and cardboard"},
-                    {"name": "Metal", "code": 103, "desc": "Aluminum cans, tin foil, and metal objects"},
-                    {"name": "Glass", "code": 104, "desc": "Glass bottles, jars, and glass products"},
-                    {"name": "Organic Waste", "code": 105, "desc": "Food waste, compostable organic materials"},
-                    {"name": "E-Waste", "code": 106, "desc": "Electronic components and small appliances"},
-                ]
-                for cat_data in default_categories:
+            # Seed Default Categories if missing
+            default_categories = [
+                {"name": "Plastic", "code": 101, "desc": "Plastic bottles, containers, and packaging"},
+                {"name": "Paper & Cardboard", "code": 102, "desc": "Paper sheets, magazines, boxes, and cardboard"},
+                {"name": "Metal", "code": 103, "desc": "Aluminum cans, tin foil, and metal objects"},
+                {"name": "Glass", "code": 104, "desc": "Glass bottles, jars, and glass products"},
+                {"name": "Organic Waste", "code": 105, "desc": "Food waste, compostable organic materials"},
+                {"name": "E-Waste", "code": 106, "desc": "Electronic components and small appliances"},
+            ]
+            existing_names = {c.class_name.lower() for c in db.query(Category).all()}
+            existing_codes = {c.class_code for c in db.query(Category).all()}
+            for cat_data in default_categories:
+                if cat_data["name"].lower() not in existing_names and cat_data["code"] not in existing_codes:
                     db.add(Category(
                         class_name=cat_data["name"],
                         class_code=cat_data["code"],
@@ -163,14 +170,23 @@ def init_db_and_seed():
 
             db.commit()
 
-            # Ensure dataset folder structure exists for all active categories under uploads/dataset/{category_slug}/
-            from app.services.lifecycle_service import slugify_category_name
+            # Ensure dataset folder structure exists for all active categories & clean orphan folders
+            from app.services.lifecycle_service import slugify_category_name, sync_dataset_folders_with_db
+
             all_cats = db.query(Category).all()
-            for cat in all_cats:
-                slug = slugify_category_name(cat.class_name)
-                cat_dir = os.path.join(settings.UPLOAD_FOLDER, "dataset", slug)
+            valid_slugs = {slugify_category_name(cat.class_name) for cat in all_cats}
+            valid_slugs.add("general")  # preserve fallback general folder
+
+            dataset_root = os.path.join(settings.UPLOAD_FOLDER, "dataset")
+            os.makedirs(dataset_root, exist_ok=True)
+
+            for slug in valid_slugs:
+                cat_dir = os.path.join(dataset_root, slug)
                 os.makedirs(os.path.join(cat_dir, "images"), exist_ok=True)
                 os.makedirs(os.path.join(cat_dir, "labels"), exist_ok=True)
+
+            # Clean orphan dataset folders on disk
+            sync_dataset_folders_with_db(db)
 
         except Exception as e:
             db.rollback()
@@ -184,10 +200,25 @@ def init_db_and_seed():
 # ---------------------------------------------------------------------------
 # Lifespan — start/stop the background cleanup scheduler & init database
 # ---------------------------------------------------------------------------
+def _recover_interrupted_deployments():
+    """Block A4: put the serving model file back in line with the database after a crash."""
+    from app.database import SessionLocal
+    db = SessionLocal()
+    try:
+        from app.services.model_deployment_service import run_deployment_maintenance
+        run_deployment_maintenance(db)
+    except Exception as e:
+        db.rollback()
+        print(f"[INIT_DB] Warning: deployment recovery skipped: {e}")
+    finally:
+        db.close()
+
+
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     """Start DB seed and APScheduler cleanup worker on startup; stop it on shutdown."""
     init_db_and_seed()
+    _recover_interrupted_deployments()
     start_scheduler()
     yield
     stop_scheduler()
@@ -248,10 +279,19 @@ app.include_router(admin_router, prefix="/api/admin", tags=["Admin"])
 app.include_router(category_router, prefix="/api/categories", tags=["Category"])
 app.include_router(image_router, prefix="/api/images", tags=["Image"])
 app.include_router(ml_router, prefix="/api/ml", tags=["ML"])
+
+# Block A4.1: the model cache refuses to load a serving file that does not match
+# the deployment the database names as active (fail-closed).
+from app.database import SessionLocal as _SessionLocal  # noqa: E402
+from app.services.model_cache import YOLOModelCache as _YOLOModelCache  # noqa: E402
+from app.services.model_deployment_service import serving_expectation as _serving_expectation  # noqa: E402
+
+_YOLOModelCache.set_integrity_check(_serving_expectation(_SessionLocal))
 app.include_router(dataset_router, prefix="/api/dataset", tags=["Dataset"])
 app.include_router(annotation_router, prefix="/api/annotations", tags=["Annotation"])
 app.include_router(lifecycle_router, prefix="/api/lifecycle", tags=["Lifecycle"])
 app.include_router(ai_segmentation_router, prefix="/api/ai", tags=["AI Segmentation"])
+app.include_router(label_revisions_router, prefix="/api/label-revisions", tags=["Label Revisions"])
 
 
 

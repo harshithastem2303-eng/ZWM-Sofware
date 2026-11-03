@@ -1,6 +1,8 @@
 """Tests for admin endpoints: users, categories, validation, analytics."""
 import uuid
 
+from app.config import settings   # A5.1: per-session bootstrap admin from conftest
+
 
 class TestAdminUsers:
     def test_list_users(self, client, admin_auth):
@@ -96,8 +98,8 @@ class TestAdminAnalytics:
 class TestAdminAuth:
     def test_admin_login_success(self, client):
         r = client.post("/api/admin/login", json={
-            "email": "admin@gmail.com",
-            "password": "user123"
+            "email": settings.ADMIN_EMAIL,
+            "password": settings.ADMIN_PASSWORD
         })
         assert r.status_code == 200
         data = r.json()
@@ -113,13 +115,13 @@ class TestAdminAuth:
     def test_admin_login_wrong_email(self, client):
         r = client.post("/api/admin/login", json={
             "email": "wrongadmin@gmail.com",
-            "password": "user123"
+            "password": settings.ADMIN_PASSWORD
         })
         assert r.status_code == 401
 
     def test_admin_login_wrong_password(self, client):
         r = client.post("/api/admin/login", json={
-            "email": "admin@gmail.com",
+            "email": settings.ADMIN_EMAIL,
             "password": "WrongPassword123"
         })
         assert r.status_code == 401

@@ -2,6 +2,7 @@ import React, { useRef, useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { Cloud, Leaf, Upload, Tag, CheckSquare, Database, ChevronRight, ChevronDown, ChevronUp, Menu, X } from 'lucide-react';
 import { ZwmLogo } from '../../assets/icons/ZwmLogo';
+import { Footer } from '../../components/Footer';
 
 export const LandingPage: React.FC = () => {
   const navigate = useNavigate();
@@ -24,6 +25,8 @@ export const LandingPage: React.FC = () => {
 
   // State for mobile sidebar drawer navigation
   const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
+
+
 
   // State for FAQ accordion expansion (first item open by default)
   const [openFaqIndex, setOpenFaqIndex] = useState<number | null>(0);
@@ -118,7 +121,6 @@ export const LandingPage: React.FC = () => {
       ([entry]) => {
         if (entry.isIntersecting) {
           setIsHowItWorksInView(true);
-          setActiveNav('how');
         }
       },
       { threshold: 0.2 }
@@ -128,7 +130,6 @@ export const LandingPage: React.FC = () => {
       ([entry]) => {
         if (entry.isIntersecting) {
           setIsAboutInView(true);
-          setActiveNav('about');
         }
       },
       { threshold: 0.25 }
@@ -475,13 +476,15 @@ export const LandingPage: React.FC = () => {
         </div>
       </section>
 
-      {/* ─── SECTION 2: ABOUT ─── */}
+      {/* ─── SECTION 2: ABOUT (WHAT IS ZERO WASTE MANAGEMENT) ─── */}
       <section ref={aboutRef} className="landing-about-section" style={{
         padding: '88px 64px',
         backgroundColor: '#f6fbf5',
         borderTop: '1px solid #e9f5e9',
+        borderBottom: '1px solid #e9f5e9',
         position: 'relative',
-        overflow: 'hidden',
+        overflow: 'visible',
+        width: '100%',
       }}>
         <div key={aboutKey} style={{ maxWidth: '1140px', margin: '0 auto' }}>
           <div style={{
@@ -495,7 +498,11 @@ export const LandingPage: React.FC = () => {
               <h2
                 className={isAboutInView ? 'about-title-animated' : ''}
                 style={{
-                  fontSize: '2.6rem', fontWeight: 800, color: '#0f172a', marginBottom: '22px', letterSpacing: '-0.025em',
+                  fontSize: '2.8rem',
+                  fontWeight: 800,
+                  color: '#0f172a',
+                  marginBottom: '24px',
+                  letterSpacing: '-0.025em',
                   lineHeight: 1.2,
                   opacity: isAboutInView ? undefined : 0,
                   animationDelay: isAboutInView ? '0.1s' : '0s',
@@ -507,95 +514,110 @@ export const LandingPage: React.FC = () => {
               <p
                 className={isAboutInView ? 'about-answer-animated' : ''}
                 style={{
-                  fontSize: '1.1rem', color: '#334155', lineHeight: 1.7, marginBottom: '20px',
-                  fontWeight: 600,
+                  fontSize: '1.05rem',
+                  color: '#334155',
+                  lineHeight: 1.75,
+                  marginBottom: '20px',
+                  fontWeight: 500,
                   opacity: isAboutInView ? undefined : 0,
                   animationDelay: isAboutInView ? '0.3s' : '0s',
                 }}
               >
-                <strong>Zero Waste Management (ZWM)</strong> is an AI-assisted platform that makes it simple to turn real-world waste photos into high-quality training datasets for AI waste detection models.
-              </p>
-
-              <p
-                className={`about-para-optional ${isAboutInView ? 'about-answer-animated' : ''}`}
-                style={{
-                  fontSize: '1.02rem', color: '#475569', lineHeight: 1.7, marginBottom: '20px',
-                  opacity: isAboutInView ? undefined : 0,
-                  animationDelay: isAboutInView ? '0.5s' : '0s',
-                }}
-              >
-                Users upload waste images, add simple annotations to label objects, and categorize items like Plastic, Paper, Glass, and Metal into organized datasets.
+                <strong>ZWM (Zero Waste Management)</strong> is an AI-assisted waste dataset management platform designed to help users create high-quality datasets for training computer vision waste-detection models.
               </p>
 
               <p
                 className={isAboutInView ? 'about-answer-animated' : ''}
                 style={{
-                  fontSize: '1.02rem', color: '#475569', lineHeight: 1.7,
+                  fontSize: '1.02rem',
+                  color: '#475569',
+                  lineHeight: 1.75,
+                  marginBottom: '24px',
+                  opacity: isAboutInView ? undefined : 0,
+                  animationDelay: isAboutInView ? '0.5s' : '0s',
+                }}
+              >
+                Users upload waste images, annotate objects using polygon-based annotations, and assign categories such as Plastic, Paper, Glass, and Metal. The platform maintains structured records of images, annotations, categories, and validation data in a central database.
+              </p>
+
+              <div
+                className={isAboutInView ? 'about-answer-animated' : ''}
+                style={{
+                  borderLeft: '4px solid #168a1a',
+                  paddingLeft: '18px',
+                  paddingTop: '2px',
+                  paddingBottom: '2px',
                   opacity: isAboutInView ? undefined : 0,
                   animationDelay: isAboutInView ? '0.7s' : '0s',
                 }}
               >
-                These validated datasets help build smarter AI systems for automated waste sorting and recycling.
-              </p>
+                <p style={{ fontSize: '1.02rem', color: '#475569', lineHeight: 1.75, margin: 0 }}>
+                  Validated datasets serve as direct input for <strong>YOLO-based model training</strong>, empowering autonomous waste sorting and smart recycling systems for a cleaner planet.
+                </p>
+              </div>
             </div>
 
-            {/* Right Column: Animated AI Dataset Scanner Showcase */}
+            {/* Right Column: AI Dataset Pipeline Card Matching Image 1 */}
             <div style={{ position: 'relative' }}>
-              {/* Outer Card with Glass Shadow */}
               <div style={{
                 backgroundColor: '#ffffff',
                 borderRadius: '24px',
                 padding: '28px',
-                boxShadow: '0 20px 48px rgba(22, 138, 26, 0.12)',
-                border: '1px solid #d1fae5',
+                boxShadow: '0 20px 48px rgba(0, 0, 0, 0.07)',
+                border: '1px solid #e2e8f0',
                 position: 'relative',
-                overflow: 'hidden',
               }}>
                 {/* Header Strip */}
                 <div style={{
                   display: 'flex',
                   justifyContent: 'space-between',
                   alignItems: 'center',
-                  paddingBottom: '14px',
-                  marginBottom: '16px',
+                  paddingBottom: '16px',
+                  marginBottom: '18px',
                   borderBottom: '1px solid #f1f5f9',
                 }}>
-                  <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
                     <div style={{
-                      width: '10px', height: '10px', borderRadius: '50%',
+                      width: '10px',
+                      height: '10px',
+                      borderRadius: '50%',
                       backgroundColor: '#22c55e',
                       boxShadow: '0 0 10px #22c55e',
                     }} />
-                    <span style={{ fontSize: '0.86rem', fontWeight: 800, color: '#0f172a' }}>
+                    <span style={{ fontSize: '0.92rem', fontWeight: 800, color: '#0f172a' }}>
                       ZWM Dataset Pipeline
                     </span>
                   </div>
                   <span style={{
-                    fontSize: '0.72rem', fontWeight: 700,
-                    color: '#168a1a', backgroundColor: '#f0fdf4',
-                    padding: '4px 12px', borderRadius: '20px',
+                    fontSize: '0.78rem',
+                    fontWeight: 700,
+                    color: '#168a1a',
+                    backgroundColor: '#f0fdf4',
+                    padding: '5px 14px',
+                    borderRadius: '20px',
                     border: '1px solid #d1fae5',
                   }}>
                     Polygon Annotation Live
                   </span>
                 </div>
 
-                {/* Simulated Waste Image Scanning Box with User Uploaded Outdoor Waste Image */}
+                {/* Dark Editor Canvas Window with Waste Image & Live Laser Scan Animation */}
                 <div style={{
-                  height: '290px',
+                  backgroundColor: '#0f172a',
                   borderRadius: '16px',
+                  padding: '18px 20px',
                   position: 'relative',
-                  overflow: 'hidden',
-                  padding: '14px',
+                  minHeight: '230px',
                   display: 'flex',
                   flexDirection: 'column',
                   justifyContent: 'space-between',
                   boxShadow: '0 8px 24px rgba(0,0,0,0.18)',
+                  overflow: 'hidden',
                 }}>
-                  {/* User Uploaded Outdoor Waste Background Image */}
+                  {/* Real-world Waste Image Background — Crisp & Fully Visible */}
                   <img
                     src="/images/outdoor-waste.jpg"
-                    alt="Outdoor Real-World Waste Scene"
+                    alt="Waste Detection Scene"
                     style={{
                       position: 'absolute',
                       top: 0,
@@ -603,111 +625,149 @@ export const LandingPage: React.FC = () => {
                       width: '100%',
                       height: '100%',
                       objectFit: 'cover',
-                      filter: 'brightness(0.95) contrast(1.05)',
+                      opacity: 0.95,
+                      filter: 'brightness(1.05) contrast(1.08)',
+                      zIndex: 1,
                     }}
                   />
 
-                  {/* Dark Gradient Overlay Mask */}
+                  {/* Soft Vignette Mask */}
                   <div style={{
                     position: 'absolute',
                     top: 0, left: 0, right: 0, bottom: 0,
-                    background: 'linear-gradient(180deg, rgba(15, 23, 42, 0.35) 0%, rgba(15, 23, 42, 0.05) 40%, rgba(15, 23, 42, 0.6) 100%)',
+                    background: 'linear-gradient(180deg, rgba(15, 23, 42, 0.55) 0%, rgba(15, 23, 42, 0.15) 50%, rgba(15, 23, 42, 0.65) 100%)',
+                    zIndex: 2,
                     pointerEvents: 'none',
                   }} />
 
-                  {/* Moving Laser Scanner Line */}
+                  {/* Moving Laser Scanner Beam Animation */}
                   <div style={{
                     position: 'absolute',
-                    top: 0,
                     left: 0,
                     right: 0,
-                    height: '4px',
-                    background: 'linear-gradient(90deg, transparent, #22c55e 30%, #add192 50%, #22c55e 70%, transparent)',
-                    boxShadow: '0 0 18px #22c55e',
-                    animation: 'laserScanCycle 4.2s ease-in-out infinite',
+                    height: '3px',
+                    background: 'linear-gradient(90deg, transparent, #22c55e 30%, #4ade80 50%, #22c55e 70%, transparent)',
+                    boxShadow: '0 0 14px #22c55e, 0 0 24px #4ade80',
+                    animation: 'laserScanCycle 4s ease-in-out infinite',
                     zIndex: 5,
                     pointerEvents: 'none',
                   }} />
 
-                  {/* Bounding Box 1: HDPE Plastic (Reveals as Scanner Passes) */}
-                  <div style={{
-                    position: 'absolute',
-                    top: '42%',
-                    left: '13%',
-                    width: '36%',
-                    height: '38%',
-                    border: '2.5px dashed #22c55e',
-                    backgroundColor: 'rgba(34, 197, 94, 0.25)',
-                    borderRadius: '10px',
-                    boxShadow: '0 0 16px rgba(34, 197, 94, 0.45)',
-                    animation: 'scanHdpeBox 4.2s ease-in-out infinite',
-                    zIndex: 4,
-                  }}>
+                  {/* Top Header inside Dark Editor Box */}
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', zIndex: 6 }}>
                     <span style={{
-                      position: 'absolute', top: '-24px', left: '-2px',
-                      fontSize: '0.68rem', fontWeight: 800, color: '#ffffff',
-                      backgroundColor: '#168a1a', padding: '2px 8px', borderRadius: '4px',
-                      whiteSpace: 'nowrap', boxShadow: '0 2px 8px rgba(0,0,0,0.3)',
-                      display: 'flex', alignItems: 'center', gap: '4px',
+                      fontSize: '0.78rem',
+                      fontWeight: 700,
+                      color: '#4ade80',
+                      backgroundColor: 'rgba(15, 23, 42, 0.7)',
+                      padding: '3px 10px',
+                      borderRadius: '6px',
+                      backdropFilter: 'blur(4px)',
                     }}>
-                      <span>HDPE Plastic</span>
-                      <span style={{ opacity: 0.85, fontSize: '0.62rem' }}>97.4%</span>
+                      Resolution: 1920x1080
                     </span>
-                  </div>
-
-                  {/* Bounding Box 2: PET Bottle (Reveals as Scanner Passes) */}
-                  <div style={{
-                    position: 'absolute',
-                    top: '34%',
-                    left: '63%',
-                    width: '28%',
-                    height: '22%',
-                    border: '2.5px dashed #3b82f6',
-                    backgroundColor: 'rgba(59, 130, 246, 0.25)',
-                    borderRadius: '10px',
-                    boxShadow: '0 0 16px rgba(59, 130, 246, 0.45)',
-                    animation: 'scanPetBox 4.2s ease-in-out infinite',
-                    zIndex: 4,
-                  }}>
                     <span style={{
-                      position: 'absolute', top: '-24px', left: '-2px',
-                      fontSize: '0.68rem', fontWeight: 800, color: '#ffffff',
-                      backgroundColor: '#3b82f6', padding: '2px 8px', borderRadius: '4px',
-                      whiteSpace: 'nowrap', boxShadow: '0 2px 8px rgba(0,0,0,0.3)',
-                      display: 'flex', alignItems: 'center', gap: '4px',
+                      fontSize: '0.78rem',
+                      fontWeight: 700,
+                      color: '#e2e8f0',
+                      backgroundColor: 'rgba(15, 23, 42, 0.7)',
+                      padding: '3px 10px',
+                      borderRadius: '6px',
+                      backdropFilter: 'blur(4px)',
                     }}>
-                      <span>PET Bottle</span>
-                      <span style={{ opacity: 0.85, fontSize: '0.62rem' }}>98.8%</span>
-                    </span>
-                  </div>
-
-                  {/* Top Bar Info */}
-                  <div style={{ position: 'relative', zIndex: 6, display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                    <span style={{ fontSize: '0.74rem', fontWeight: 700, color: '#ffffff', backgroundColor: 'rgba(15, 23, 42, 0.75)', padding: '3px 10px', borderRadius: '6px', backdropFilter: 'blur(4px)' }}>
-                      Polymer Class: HDPE & PET
-                    </span>
-                    <span style={{ fontSize: '0.74rem', fontWeight: 700, color: '#add192', backgroundColor: 'rgba(15, 23, 42, 0.75)', padding: '3px 10px', borderRadius: '6px', backdropFilter: 'blur(4px)' }}>
                       COCO / YOLO Export
                     </span>
                   </div>
 
-                  {/* Bottom Bar Status */}
-                  <div style={{ position: 'relative', zIndex: 6, display: 'flex', gap: '8px' }}>
-                    <span style={{ fontSize: '0.7rem', fontWeight: 700, color: '#ffffff', backgroundColor: '#168a1a', padding: '4px 12px', borderRadius: '8px', boxShadow: '0 2px 8px rgba(22, 138, 26, 0.3)' }}>
-                      Detected: HDPE Plastic + PET Bottle
+                  {/* Bounding Box & Polygon Annotations Canvas Layer Overlay (1-to-1 Pixel Map over Image) */}
+                  <div style={{ position: 'absolute', top: 0, left: 0, right: 0, bottom: 0, zIndex: 6, pointerEvents: 'none' }}>
+                    {/* Object 1: Plastic Cover (Translucent Plastic Bag at Bottom-Left) */}
+                    <div style={{
+                      position: 'absolute',
+                      top: '40%',
+                      left: '12%',
+                      width: '35%',
+                      height: '44%',
+                      border: '2.5px dashed #3b82f6',
+                      backgroundColor: 'rgba(59, 130, 246, 0.25)',
+                      borderRadius: '12px',
+                      boxShadow: '0 0 20px rgba(59, 130, 246, 0.55)',
+                      animation: 'scanPetBox 3.8s ease-in-out infinite',
+                    }}>
+                      <span style={{
+                        position: 'absolute',
+                        top: '-14px',
+                        left: '6px',
+                        backgroundColor: '#2563eb',
+                        color: '#ffffff',
+                        fontSize: '0.72rem',
+                        fontWeight: 800,
+                        padding: '3px 10px',
+                        borderRadius: '4px',
+                        whiteSpace: 'nowrap',
+                        boxShadow: '0 3px 10px rgba(0,0,0,0.35)',
+                      }}>
+                        Plastic Cover 98%
+                      </span>
+                    </div>
+
+                    {/* Object 2: PET Bottle (Horizontal Transparent Bottle with Blue Cap at Middle-Right) */}
+                    <div style={{
+                      position: 'absolute',
+                      top: '34%',
+                      left: '50%',
+                      width: '42%',
+                      height: '24%',
+                      border: '2.5px dashed #22c55e',
+                      backgroundColor: 'rgba(34, 197, 94, 0.25)',
+                      borderRadius: '12px',
+                      boxShadow: '0 0 20px rgba(34, 197, 94, 0.55)',
+                      animation: 'scanHdpeBox 3.8s ease-in-out infinite',
+                    }}>
+                      <span style={{
+                        position: 'absolute',
+                        top: '-14px',
+                        left: '6px',
+                        backgroundColor: '#168a1a',
+                        color: '#ffffff',
+                        fontSize: '0.72rem',
+                        fontWeight: 800,
+                        padding: '3px 10px',
+                        borderRadius: '4px',
+                        whiteSpace: 'nowrap',
+                        boxShadow: '0 3px 10px rgba(0,0,0,0.35)',
+                      }}>
+                        PET Bottle 96%
+                      </span>
+                    </div>
+                  </div>
+
+                  {/* Bottom Left Status Badge inside Dark Editor Box */}
+                  <div style={{ zIndex: 6 }}>
+                    <span style={{
+                      fontSize: '0.75rem',
+                      fontWeight: 700,
+                      backgroundColor: '#168a1a',
+                      color: '#ffffff',
+                      padding: '5px 14px',
+                      borderRadius: '6px',
+                      display: 'inline-block',
+                      boxShadow: '0 2px 8px rgba(22, 138, 26, 0.4)',
+                    }}>
+                      Validated Entry
                     </span>
                   </div>
                 </div>
 
-                {/* Progress Indicators Bar */}
-                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '12px', marginTop: '16px' }}>
-                  <div style={{ backgroundColor: '#f8fafc', padding: '12px 14px', borderRadius: '12px', border: '1px solid #e2e8f0' }}>
-                    <div style={{ fontSize: '0.74rem', color: '#64748b', fontWeight: 600 }}>Dataset Accuracy</div>
-                    <div style={{ fontSize: '1.2rem', fontWeight: 800, color: '#168a1a' }}>99.4%</div>
+                {/* Bottom Progress Metrics Row */}
+                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '16px', marginTop: '20px' }}>
+                  <div style={{ backgroundColor: '#f8fafc', padding: '16px 18px', borderRadius: '14px', border: '1px solid #e2e8f0' }}>
+                    <div style={{ fontSize: '0.8rem', color: '#64748b', fontWeight: 600, marginBottom: '4px' }}>Dataset Accuracy</div>
+                    <div style={{ fontSize: '1.6rem', fontWeight: 800, color: '#168a1a' }}>99.4%</div>
                   </div>
-                  <div style={{ backgroundColor: '#f8fafc', padding: '12px 14px', borderRadius: '12px', border: '1px solid #e2e8f0' }}>
-                    <div style={{ fontSize: '0.74rem', color: '#64748b', fontWeight: 600 }}>Training Compatibility</div>
-                    <div style={{ fontSize: '1.2rem', fontWeight: 800, color: '#0f172a' }}>YOLOv8/v11</div>
+                  <div style={{ backgroundColor: '#f8fafc', padding: '16px 18px', borderRadius: '14px', border: '1px solid #e2e8f0' }}>
+                    <div style={{ fontSize: '0.8rem', color: '#64748b', fontWeight: 600, marginBottom: '4px' }}>Training Compatibility</div>
+                    <div style={{ fontSize: '1.6rem', fontWeight: 800, color: '#0f172a' }}>YOLOv8/v11</div>
                   </div>
                 </div>
               </div>
@@ -889,19 +949,7 @@ export const LandingPage: React.FC = () => {
       </section>
 
       {/* ─── FOOTER ─── */}
-      <footer className="landing-footer" style={{
-        padding: '32px 64px',
-        backgroundColor: '#0f172a',
-        display: 'flex',
-        justifyContent: 'space-between',
-        alignItems: 'center',
-      }}>
-        <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
-          <ZwmLogo size={34} />
-          <span style={{ color: '#94a3b8', fontSize: '0.9rem', fontWeight: 600 }}>ZWM — Zero Waste Management</span>
-        </div>
-        <p style={{ color: '#475569', fontSize: '0.84rem' }}>© 2026 ZWM. Building a cleaner planet, one image at a time.</p>
-      </footer>
+      <Footer />
 
     </div>
   );

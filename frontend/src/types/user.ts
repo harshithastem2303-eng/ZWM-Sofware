@@ -6,10 +6,11 @@ export interface UserStats {
 }
 
 export interface RewardTransaction {
-  transaction_id: number;
+  transaction_id: string | number;
   image_id?: string;
   points: number;
   description: string;
+  class_name?: string;
   created_at: string;
 }
 

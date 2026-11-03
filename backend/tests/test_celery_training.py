@@ -9,7 +9,42 @@ from app.models.training import TrainingJob, ModelVersion
 from app.models.category import Category
 from app.tasks.training_tasks import train_model
 from worker import training_worker
-from test_training_worker import setup_permanent_image, ensure_db_available
+from test_training_worker import (  # noqa: F401
+    setup_permanent_image, ensure_db_available, _model_state, _restore_model_state,
+)
+
+
+@pytest.fixture(autouse=True)
+def isolated_legacy_training(monkeypatch, tmp_path):
+    """
+    Keep the legacy task away from real assets: model dir, active model path,
+    uploads, datasets and runs all live under tmp_path.
+    """
+    import test_training_worker  # noqa: F401
+    from app.config import settings
+    from app.tasks import training_tasks
+
+    active = tmp_path / "active" / "best.pt"
+    active.parent.mkdir()
+    active.write_bytes(b"ACTIVE")
+    (tmp_path / "models").mkdir()
+    monkeypatch.setattr(training_tasks, "MODELS_DIR", tmp_path / "models")
+    monkeypatch.setattr(settings, "YOLO_MODEL_PATH", str(active))
+    monkeypatch.setattr(settings, "DEPLOYED_MODELS_DIR", str(tmp_path / "deployed"))
+    monkeypatch.setattr(settings, "UPLOAD_FOLDER", str(tmp_path / "uploads"))
+    monkeypatch.setattr(training_worker, "RUNS_ROOT", tmp_path / "runs")
+    # A5.1: test_training_worker resolves uploads from settings.UPLOAD_FOLDER (patched above)
+    before = _model_state()
+    yield active
+    _restore_model_state(before)
+
+
+def _patch_training(monkeypatch, fn):
+    """Patch BOTH references: the task module imported the function by name."""
+    from app.tasks import training_tasks
+    monkeypatch.setattr(training_worker, 'run_ultralytics_training', fn)
+    monkeypatch.setattr(training_tasks, 'run_ultralytics_training', fn)
+
 
 def test_celery_task_success(monkeypatch, db):
     ensure_db_available()
@@ -39,7 +74,7 @@ def test_celery_task_success(monkeypatch, db):
         best.write_bytes(b'BESTMODEL')
         return best, {'map50': 0.8}
         
-    monkeypatch.setattr(training_worker, 'run_ultralytics_training', fake_train)
+    _patch_training(monkeypatch, fake_train)
     
     # Execute the Celery task synchronously
     result = train_model(job.job_id)
@@ -79,7 +114,7 @@ def test_celery_task_permanent_failure(monkeypatch, db):
     def fake_train_fail(data_yaml, run_name, epochs=50, imgsz=640):
         raise ValueError("Invalid configuration for YOLO")
         
-    monkeypatch.setattr(training_worker, 'run_ultralytics_training', fake_train_fail)
+    _patch_training(monkeypatch, fake_train_fail)
     
     result = train_model(job.job_id)
     assert "failed" in result

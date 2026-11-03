@@ -2,7 +2,7 @@ import uuid
 from datetime import datetime, timezone
 
 from app.database import Base
-from sqlalchemy import Column, String, Integer, Float, Boolean, Text, DateTime, ForeignKey, JSON, Index
+from sqlalchemy import Column, String, Integer, BigInteger, Float, Boolean, Text, DateTime, ForeignKey, JSON, Index
 from sqlalchemy.orm import relationship
 
 
@@ -62,6 +62,30 @@ class Image(Base):
     annotated_at = Column(DateTime(timezone=True), nullable=True)
     converted_at = Column(DateTime(timezone=True), nullable=True)
     permanent_at = Column(DateTime(timezone=True), nullable=True)
+
+    # -- Training eligibility (v1.1.0) ---------------------------------------
+    # Set once when annotation + valid YOLO TXT + permanent promotion all succeed.
+    # training_sequence gives a stable, gap-tolerant order for milestone snapshots.
+    training_eligible_at = Column(DateTime(timezone=True), nullable=True)
+    training_sequence = Column(BigInteger, unique=True, nullable=True)
+
+    # -- Human label review evidence (Block A6.0) -------------------------------
+    # Set by finalize (the contributor's "labels are complete" step); cleared by any
+    # later annotation change. A human-only revision finalized by its owner becomes
+    # eligible on finalize (A1); a revision with any AI involvement or foreign
+    # annotations needs an approved LabelReview of exactly this revision
+    # (training_review_id). NULL on historical rows: never re-validated or backfilled.
+    label_sha256 = Column(String(64), nullable=True)
+    label_fingerprint = Column(String(64), nullable=True)
+    label_finalized_at = Column(DateTime(timezone=True), nullable=True)
+    label_finalized_by = Column(String(36), nullable=True)
+    training_review_id = Column(String(36), nullable=True)
+    # How the training sequence was granted: user_confirmed | admin_approved
+    # (NULL = granted before A6.0 completion; never backfilled).
+    label_provenance = Column(String(20), nullable=True)
+    # Server-side evidence that AI suggestions were served for this image. Once set,
+    # no revision of it can be user-confirmed: an administrator must review it.
+    ai_suggested_at = Column(DateTime(timezone=True), nullable=True)
 
     # -- Relationships -------------------------------------------------------
     annotations = relationship("Annotation", backref="image", lazy=True, cascade="all, delete-orphan")

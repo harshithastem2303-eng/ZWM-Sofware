@@ -5,9 +5,11 @@ import { WorkflowSteps } from '../../components/dashboard/WorkflowSteps';
 import { StatCard } from '../../components/dashboard/StatCard';
 import { CardLeafWatermark } from '../../assets/icons/LeafAccents';
 import { userService, UserDashboardData } from '../../services/userService';
+import { useAuth } from '../../context/AuthContext';
 
 export const DashboardPage: React.FC = () => {
   const navigate = useNavigate();
+  const { updateStats } = useAuth();
   const [dashboardData, setDashboardData] = useState<UserDashboardData | null>(null);
   const [isLoading, setIsLoading] = useState<boolean>(true);
   const [error, setError] = useState<string | null>(null);
@@ -18,6 +20,12 @@ export const DashboardPage: React.FC = () => {
     try {
       const data = await userService.getDashboard();
       setDashboardData(data);
+      if (data?.stats?.points !== undefined) {
+        updateStats({
+          reward_points: data.stats.points,
+          total_uploads: data.stats.total_submissions,
+        });
+      }
     } catch (err: any) {
       setError(err.message || 'Failed to load dashboard data.');
     } finally {

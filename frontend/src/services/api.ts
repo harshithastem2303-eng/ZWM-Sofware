@@ -41,7 +41,7 @@ export async function request<T>(
         localStorage.removeItem('zwm_stats');
       }
       const errorData = await response.json().catch(() => ({}));
-      throw new Error(errorData.detail || errorData.message || `HTTP ${response.status}`);
+      throw new Error(errorData.error?.message || errorData.detail || errorData.message || `HTTP ${response.status}`);
     }
 
     return (await response.json()) as T;
@@ -437,3 +437,168 @@ export const updateSystemSettings = async (settingsData: any) => {
   return await response.json();
 };
 
+
+// ---- Model approval, activation & rollback (Block A4, admin only) ----
+
+const adminMlRequest = (path: string, method: string = 'GET', body?: any) =>
+  adminRequest(`/ml${path}`, method, body);
+
+const adminRequest = async (path: string, method: string = 'GET', body?: any) => {
+  const token = getToken();
+  const response = await fetch(`${API_BASE_URL}${path}`, {
+    method,
+    headers: {
+      'Authorization': `Bearer ${token}`,
+      ...(body !== undefined ? { 'Content-Type': 'application/json' } : {}),
+    },
+    ...(body !== undefined ? { body: JSON.stringify(body) } : {}),
+  });
+
+  if (!response.ok) {
+    let errorMessage = `Request failed (${response.status})`;
+    try {
+      const errData = await response.json();
+      errorMessage = errData.error?.message || errData.detail || errorMessage;
+    } catch (e) {}
+    throw new Error(errorMessage);
+  }
+
+  return await response.json();
+};
+
+export const fetchModelCandidates = () => adminMlRequest('/candidates');
+
+export const fetchCandidateApproval = (modelId: string) =>
+  adminMlRequest(`/candidates/${encodeURIComponent(modelId)}/approval`);
+
+export const approveCandidate = (modelId: string, evaluationId: string, reason?: string) =>
+  adminMlRequest(`/candidates/${encodeURIComponent(modelId)}/approve`, 'POST', {
+    evaluation_id: evaluationId,
+    ...(reason ? { reason } : {}),
+  });
+
+export const rejectCandidate = (modelId: string, evaluationId: string, reason: string) =>
+  adminMlRequest(`/candidates/${encodeURIComponent(modelId)}/reject`, 'POST', {
+    evaluation_id: evaluationId,
+    reason,
+  });
+
+export const activateModelVersion = (modelId: string, reason?: string) =>
+  adminMlRequest(`/models/${encodeURIComponent(modelId)}/activate`, 'POST', reason ? { reason } : {});
+
+export const fetchDeployments = () => adminMlRequest('/deployments');
+
+export const fetchDeploymentEvents = () => adminMlRequest('/deployments/events');
+
+export const rollbackDeployment = (reason: string, targetModelId?: string) =>
+  adminMlRequest('/deployments/rollback', 'POST', {
+    reason,
+    ...(targetModelId ? { target_model_id: targetModelId } : {}),
+  });
+
+// ---- Administrator monitoring (Block A5, read-only) ----
+
+const toQuery = (params: Record<string, any>) => {
+  const q = Object.entries(params).filter(([, v]) => v !== undefined && v !== null && v !== '');
+  return q.length ? `?${q.map(([k, v]) => `${encodeURIComponent(k)}=${encodeURIComponent(String(v))}`).join('&')}` : '';
+};
+
+export const fetchMonitoringSummary = () => adminMlRequest('/monitoring/summary');
+
+export const fetchMonitoringTimeline = (params: { limit?: number; offset?: number; source?: string } = {}) =>
+  adminMlRequest(`/monitoring/timeline${toQuery(params)}`);
+
+export const fetchTrainingJobsPage = (params: { limit?: number; offset?: number; status?: string; trigger?: string } = {}) =>
+  adminMlRequest(`/jobs${toQuery(params)}`);
+
+export const fetchTrainingJobDetail = (jobId: string) => adminMlRequest(`/jobs/${encodeURIComponent(jobId)}`);
+
+export const fetchEvaluationsPage = (params: { limit?: number; offset?: number; status?: string } = {}) =>
+  adminMlRequest(`/evaluations${toQuery(params)}`);
+
+export const fetchDeploymentsPage = (params: { limit?: number; offset?: number; kind?: string } = {}) =>
+  adminMlRequest(`/deployments${toQuery(params)}`);
+
+export const fetchApprovalsPage = (params: { limit?: number; offset?: number; decision?: string } = {}) =>
+  adminMlRequest(`/approvals${toQuery(params)}`);
+
+
+// ---- Prediction feedback (Block A6.2) ----
+// Users report incorrect AI predictions; administrators approve or reject the reports.
+// A decision never changes labels or training eligibility.
+
+export type FeedbackType = 'incorrect_class' | 'incorrect_geometry' | 'missed_object' | 'false_detection' | 'other';
+
+export interface FeedbackSubmission {
+  feedback_type: FeedbackType;
+  detection_index?: number;
+  explanation?: string;
+  suggested_category_id?: number;
+  suggested_geometry?:
+    | { type: 'bbox'; bbox: [number, number, number, number] }
+    | { type: 'polygon'; points: { x: number; y: number }[] };
+}
+
+export const fetchPredictionsForImage = (imageId: string) =>
+  request<any>(`/ml/predictions${toQuery({ image_id: imageId, limit: 20 })}`);
+
+export const fetchPrediction = (predictionId: string) =>
+  request<any>(`/ml/predictions/${encodeURIComponent(predictionId)}`);
+
+export const submitPredictionFeedback = (predictionId: string, body: FeedbackSubmission) =>
+  request<any>(`/ml/predictions/${encodeURIComponent(predictionId)}/feedback`, {
+    method: 'POST',
+    body: JSON.stringify(body),
+  });
+
+export const fetchMyFeedback = (params: { image_id?: string; status?: string; limit?: number; offset?: number } = {}) =>
+  request<any>(`/ml/feedback${toQuery(params)}`);
+
+export const fetchFeedbackQueue = (params: {
+  status?: string; feedback_type?: string; submitted_from?: string; submitted_to?: string;
+  order?: string; limit?: number; offset?: number;
+} = {}) => adminMlRequest(`/feedback-review${toQuery(params)}`);
+
+export const fetchFeedbackReview = (feedbackId: string) =>
+  adminMlRequest(`/feedback-review/${encodeURIComponent(feedbackId)}`);
+
+export const approveFeedback = (feedbackId: string, reason?: string) =>
+  adminMlRequest(`/feedback-review/${encodeURIComponent(feedbackId)}/approve`, 'POST', reason ? { reason } : {});
+
+export const rejectFeedback = (feedbackId: string, reason: string) =>
+  adminMlRequest(`/feedback-review/${encodeURIComponent(feedbackId)}/reject`, 'POST', { reason });
+
+
+// ---- Immutable label revisions (Block A6.3, administrator actions) ----
+// A revision is a complete, immutable label state. Approved feedback becomes a draft
+// revision; an independent administrator approves it; activation rewrites the image's
+// annotations and label, which then still needs the A6.0 label review to be trainable.
+
+const revisionRequest = (path: string, method: string = 'GET', body?: any) =>
+  adminRequest(`/label-revisions${path}`, method, body);
+const rid = (id: string) => encodeURIComponent(id);
+
+export const fetchRevisionQueue = (params: {
+  status?: string; image_id?: string; feedback_id?: string; source?: string; limit?: number; offset?: number;
+} = {}) => revisionRequest(`/review-queue${toQuery(params)}`);
+
+export const fetchImageRevisionsAdmin = (imageId: string) => revisionRequest(`/admin/image/${rid(imageId)}`);
+
+export const fetchRevisionAdmin = (revisionId: string) => revisionRequest(`/admin/revision/${rid(revisionId)}`);
+
+export const createRevisionFromFeedback = (
+  feedbackId: string, body: { reason: string; target_object_key?: string; category_id?: number },
+) => revisionRequest(`/from-feedback/${rid(feedbackId)}`, 'POST', body);
+
+export const submitRevision = (revisionId: string) => revisionRequest(`/${rid(revisionId)}/submit`, 'POST');
+
+export const approveRevision = (revisionId: string, reason?: string) =>
+  revisionRequest(`/${rid(revisionId)}/approve`, 'POST', reason ? { reason } : {});
+
+export const rejectRevision = (revisionId: string, reason: string) =>
+  revisionRequest(`/${rid(revisionId)}/reject`, 'POST', { reason });
+
+export const activateRevision = (revisionId: string) => revisionRequest(`/${rid(revisionId)}/activate`, 'POST');
+
+export const restoreRevision = (revisionId: string, reason: string) =>
+  revisionRequest(`/${rid(revisionId)}/restore`, 'POST', { reason });
